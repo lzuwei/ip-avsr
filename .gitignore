@@ -1,0 +1,13 @@
+# DS_Store
+.DS_Store
+
+#.idea
+.idea/
+
+# data and model files
+*/data
+*/models
+config/
+
+# .pyc files
+*.pyc
