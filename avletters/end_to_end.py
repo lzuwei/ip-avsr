@@ -365,6 +365,7 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
     # Merge layers take in lists of layers to merge as input.
     l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm_back2])
 
+    '''
     l_dropout2 = DropoutLayer(l_sum2)
 
     l_lstm3 = LSTMLayer(
@@ -388,11 +389,11 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
     l_sum3 = ElemwiseSumLayer([l_lstm3, l_lstm_back3])
-
+    '''
     # The l_forward layer creates an output of dimension (batch_size, SEQ_LENGTH, N_HIDDEN)
     # Since we are only interested in the final prediction, we isolate that quantity and feed it to the next layer.
     # The output of the sliced layer will then be of size (batch_size, N_HIDDEN)
-    l_forward_slice = SliceLayer(l_sum3, -1, 1)
+    l_forward_slice = SliceLayer(l_sum2, -1, 1)
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,

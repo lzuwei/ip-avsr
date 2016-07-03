@@ -32,7 +32,7 @@ def test_delta():
     print(aa)
 
 
-def load_dbn(path='../../DBNExample/pretrained_nn.mat'):
+def load_dbn(path='../../DBNExample/avletters_ae.mat'):
     """
     load a pretrained dbn from path
     :param path: path to the .mat dbn
