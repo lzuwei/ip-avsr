@@ -13,10 +13,6 @@ from nolearn.lasagne import BatchIterator
 from theano.sandbox.neighbours import neibs2images
 from lasagne.objectives import squared_error
 
-### this is really dumb, current nolearn doesnt play well with lasagne,
-### so had to manually copy the file I wanted to this folder
-from shape import ReshapeLayer
-
 from lasagne.nonlinearities import tanh
 import pickle
 import sys
@@ -126,13 +122,13 @@ ae = NeuralNet(
         ('input', layers.InputLayer),
         ('conv', layers.Conv2DLayer),
         ('pool', layers.MaxPool2DLayer),
-        ('flatten', ReshapeLayer),  # output_dense
+        ('flatten', layers.ReshapeLayer),  # output_dense
         ('encode_layer', layers.DenseLayer),
         ('hidden', layers.DenseLayer),  # output_dense
-        ('unflatten', ReshapeLayer),
+        ('unflatten', layers.ReshapeLayer),
         ('unpool', Unpool2DLayer),
         ('deconv', layers.Conv2DLayer),
-        ('output_layer', ReshapeLayer),
+        ('output_layer', layers.ReshapeLayer),
         ],
     input_shape=(None, 1, 28, 28),
     conv_num_filters=conv_filters, conv_filter_size = (filter_sizes, filter_sizes),
