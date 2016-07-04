@@ -63,13 +63,13 @@ def load_dbn(path='../../DBNExample/pretrained_nn.mat'):
 
     layers = [
         (InputLayer, {'name': 'input', 'shape': (None, 1200)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
+        (DenseLayer, {'name': 'l1', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
         (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
+        (DenseLayer, {'name': 'l3', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
         (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
+        (DenseLayer, {'name': 'l5', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
         (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
+        (DenseLayer, {'name': 'l7', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
         (DenseLayer, {'name': 'output', 'num_units': 1200, 'nonlinearity': linear, 'W': w8, 'b': b8}),
     ]
 
@@ -106,13 +106,13 @@ def load_finetuned_dbn(path):
             ('output', las.layers.DenseLayer)
         ],
         input_shape=(None, 1200),
-        l1_num_units=2000, l1_nonlinearity=sigmoid,
+        l1_num_units=1000, l1_nonlinearity=sigmoid,
         l2_num_units=1000, l2_nonlinearity=sigmoid,
-        l3_num_units=500, l3_nonlinearity=sigmoid,
+        l3_num_units=1000, l3_nonlinearity=sigmoid,
         l4_num_units=50, l4_nonlinearity=linear,
-        l5_num_units=500, l5_nonlinearity=sigmoid,
+        l5_num_units=1000, l5_nonlinearity=sigmoid,
         l6_num_units=1000, l6_nonlinearity=sigmoid,
-        l7_num_units=2000, l7_nonlinearity=sigmoid,
+        l7_num_units=1000, l7_nonlinearity=sigmoid,
         output_num_units=1200, output_nonlinearity=linear,
         update=nesterov_momentum,
         update_learning_rate=0.001,
@@ -129,19 +129,19 @@ def load_finetuned_dbn(path):
 
 
 def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
+    l_1 = DenseLayer(incoming, 1000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
     l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
+    l_3 = DenseLayer(l_2, 1000, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
     l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='encoder')
     return l_4
 
 
 def create_fc_encoder(incoming):
-    l_1 = DenseLayer(incoming, 2000, nonlinearity=rectify, name='fc1')
+    l_1 = DenseLayer(incoming, 1000, nonlinearity=rectify, name='fc1')
     l_drop1 = DropoutLayer(l_1, name='drop1')
     l_2 = DenseLayer(l_drop1, 1000, nonlinearity=rectify, name='fc2')
     l_drop2 = DropoutLayer(l_2, name='drop2')
-    l_3 = DenseLayer(l_drop2, 500, nonlinearity=rectify, name='fc3')
+    l_3 = DenseLayer(l_drop2, 1000, nonlinearity=rectify, name='fc3')
     l_drop3 = DropoutLayer(l_3, name='drop3')
     l_4 = DenseLayer(l_drop3, 50, nonlinearity=linear, name='encoder')
     return l_4
@@ -508,21 +508,26 @@ def main():
     test_data_resized = resize_images(test_data).astype(np.float32)
     test_data_resized = normalize_input(test_data_resized, centralize=True)
 
-    finetune = False
+    finetune = True
     if finetune:
-        dbn = load_dbn()
+        print('fine-tuning...')
+        dbn = load_dbn('models/1k_bottleneck_ae.mat')
         dbn.initialize()
         dbn.fit(train_data_resized, train_data_resized)
+        # res = dbn.predict(test_data_resized)
+        # print(res.shape)
+        # visualize_reconstruction(test_data_resized[500:525], res[500:525])
 
-    save = False
+    save = True
     if save:
-        pickle.dump(dbn, open('models/dbn_finetune.dat', 'wb'))
+        pickle.dump(dbn, open('models/1k_bot_dbn_finetune.dat', 'wb'))
 
-    load = True
+    load = False
     if load:
         print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open('models/dbn_finetune.dat', 'rb'))
+        dbn = pickle.load(open('models/1k_bot_dbn_finetune.dat', 'rb'))
         dbn.initialize()
+        # exit()
 
     window = T.iscalar('theta')
     inputs = T.tensor3('inputs', dtype='float32')
@@ -563,8 +568,8 @@ def main():
     cost_val = []
     class_rate = []
     NUM_EPOCHS = 30
-    EPOCH_SIZE = 78
-    BATCH_SIZE = 10
+    EPOCH_SIZE = 30
+    BATCH_SIZE = 26
     WINDOW_SIZE = 9
     STRIP_SIZE = 3
     MAX_LOSS = 0.2

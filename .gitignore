@@ -10,5 +10,7 @@
 */models
 config/
 
+examples/
+
 # .pyc files
 *.pyc
