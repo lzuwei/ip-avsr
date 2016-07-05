@@ -18,7 +18,7 @@ from custom_layers.custom import DeltaLayer
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer
+from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer, BatchNormLayer, batch_norm
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint
 from lasagne.objectives import squared_error
@@ -226,7 +226,36 @@ def create_end_to_end_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
     print_layer_shape(l_sum1)
 
-    l_forward_slice1 = SliceLayer(l_sum1, -1, 1, name='slice1')
+    # implement drop-out regularization
+    l_dropout = DropoutLayer(l_sum1, name='dropout1')
+    print_layer_shape(l_dropout)
+
+    l_lstm2 = LSTMLayer(
+        l_dropout, N_HIDDEN,
+        # We need to specify a separate input for masks
+        mask_input=l_mask,
+        # Here, we supply the gate parameters for each gate
+        ingate=gate_parameters, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        # We'll learn the initialization and use gradient clipping
+        learn_init=True, grad_clipping=5., name='f_lstm2')
+    print_layer_shape(l_lstm2)
+
+    # The "backwards" layer is the same as the first,
+    # except that the backwards argument is set to True.
+    l_lstm_back2 = LSTMLayer(
+        l_dropout, N_HIDDEN, ingate=gate_parameters,
+        mask_input=l_mask, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        learn_init=True, grad_clipping=5., backwards=True, name='b_lstm2')
+    print_layer_shape(l_lstm_back2)
+
+    # We'll combine the forward and backward layer output by summing.
+    # Merge layers take in lists of layers to merge as input.
+    l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm_back2])
+    print_layer_shape(l_sum2)
+
+    l_forward_slice1 = SliceLayer(l_sum2, -1, 1, name='slice1')
     print_layer_shape(l_forward_slice1)
 
     # Now, we can apply feed-forward layers as usual.
@@ -508,7 +537,7 @@ def main():
     test_data_resized = resize_images(test_data).astype(np.float32)
     test_data_resized = normalize_input(test_data_resized, centralize=True)
 
-    finetune = True
+    finetune = False
     if finetune:
         print('fine-tuning...')
         dbn = load_dbn('models/1k_bottleneck_ae.mat')
@@ -518,11 +547,11 @@ def main():
         # print(res.shape)
         # visualize_reconstruction(test_data_resized[500:525], res[500:525])
 
-    save = True
+    save = False
     if save:
         pickle.dump(dbn, open('models/1k_bot_dbn_finetune.dat', 'wb'))
 
-    load = False
+    load = True
     if load:
         print('loading pre-trained encoding layers...')
         dbn = pickle.load(open('models/1k_bot_dbn_finetune.dat', 'rb'))
@@ -542,6 +571,7 @@ def main():
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
     updates = las.updates.adadelta(cost, all_params)
+
 
     use_max_constraint = False
     if use_max_constraint:
@@ -619,8 +649,8 @@ def main():
               "generalization loss = {:.3f}, GQ = {:.3f}, classification rate = {:.3f} ({:.1f}sec)"
               .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
 
-        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
-            break
+        # if epoch >= VALIDATION_WINDOW and early_stop(val_window):
+        #    break
 
     cr, conf = evaluate_model(X_val, y_val, mask_val, WINDOW_SIZE, val_fn)
 
