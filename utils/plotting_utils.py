@@ -129,7 +129,7 @@ def _scale_to_unit_interval(ndar, eps=1e-8):
     return ndar
 
 
-def plot_validation_cost(train_error, val_error, class_rate=None):
+def plot_validation_cost(train_error, val_error, class_rate=None, savefilename=None):
     epochs = range(len(train_error))
     fig, ax1 = plt.subplots()
     ax1.plot(epochs, train_error, label='train error')
@@ -145,6 +145,8 @@ def plot_validation_cost(train_error, val_error, class_rate=None):
         lines.extend(ax2.get_lines())
     labels = [l.get_label() for l in lines]
     ax1.legend(lines, labels, loc='lower right')
+    if savefilename:
+        plt.savefig('{}.png'.format(savefilename))
     plt.show()
 
 
