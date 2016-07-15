@@ -1,6 +1,7 @@
 import numpy as np
 import theano
 import theano.tensor as T
+from lasagne.utils import unroll_scan
 
 
 def delta_theta(theta, curr_delta, t, THETA, Y):

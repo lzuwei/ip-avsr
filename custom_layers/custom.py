@@ -1,4 +1,5 @@
 from lasagne.layers import Layer
+from lasagne.utils import unroll_scan
 import theano
 import utils.signal
 

@@ -3,6 +3,7 @@ import numpy
 import math
 from tabulate import tabulate
 from matplotlib import cm
+import lasagne as las
 
 
 # import pdb
@@ -197,6 +198,26 @@ def show_image(data, shape, order='f', cmap=cm.gray):
     img = data.reshape(shape, order=order)
     plt.imshow(img, cmap=cmap)
     plt.show()
+
+
+def print_layer_shape(layer):
+    """
+    print out layer name and shape
+    :param layer: neural layer
+    :return:
+    """
+    print('[L] {}: {}'.format(layer.name, las.layers.get_output_shape(layer)))
+
+
+def print_network(network):
+    """
+    print out network structure
+    :param network: neural net
+    :return:
+    """
+    layers = las.layers.get_all_layers(network)
+    for layer in layers:
+        print_layer_shape(layer)
 
 
 def test_plot_validation_cost():

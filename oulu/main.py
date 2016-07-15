@@ -242,7 +242,7 @@ def create_end_to_end_model(dbn, input_shape, input_var, mask_shape, mask_var,
     # The "backwards" layer is the same as the first,
     # except that the backwards argument is set to True.
     l_lstm_back = LSTMLayer(
-        l_in, N_HIDDEN, ingate=gate_parameters,
+        l_delta, N_HIDDEN, ingate=gate_parameters,
         mask_input=l_mask, forgetgate=gate_parameters,
         cell=cell_parameters, outgate=gate_parameters,
         learn_init=True, grad_clipping=5., backwards=True, name='b_lstm1')
@@ -354,6 +354,8 @@ def main():
     inputs = T.tensor3('inputs', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
+    lr = theano.shared(np.array(1.0, dtype=theano.config.floatX), name='learning_rate')
+    lr_decay = np.array(0.90, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
     network = create_end_to_end_model(dbn, (None, None, 1144), inputs,
@@ -362,7 +364,7 @@ def main():
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = las.updates.adadelta(cost, all_params)
+    updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
 
     use_max_constraint = False
     if use_max_constraint:
@@ -397,6 +399,9 @@ def main():
     VALIDATION_WINDOW = 4
     val_window = circular_list(VALIDATION_WINDOW)
     train_strip = np.zeros((STRIP_SIZE,))
+    best_val = float('inf')
+    best_conf = None
+    best_cr = 0.0
 
     datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=BATCH_SIZE)
     val_datagen = gen_lstm_batch_random(test_X, test_y, test_vidlens,
@@ -433,24 +438,31 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, _ = evaluate_model(X_val, y_val, mask_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model(X_val, y_val, mask_val, WINDOW_SIZE, val_fn)
         class_rate.append(cr)
 
         print("Epoch {} train cost = {}, validation cost = {}, "
               "generalization loss = {:.3f}, GQ = {:.3f}, classification rate = {:.3f} ({:.1f}sec)"
               .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
 
+        if val_cost < best_val:
+            best_val = val_cost
+            best_conf = val_conf
+            best_cr = cr
+
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
 
-    cr, conf = evaluate_model(X_val, y_val, mask_val, WINDOW_SIZE, val_fn)
+        # learning rate decay
+        if epoch > 8:
+            lr.set_value(lr.get_value() * lr_decay)
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']
 
     print('Final Model')
-    print('classification rate: {}'.format(cr))
+    print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
     print('confusion matrix: ')
-    plot_confusion_matrix(conf, phrases, fmt='grid')
+    plot_confusion_matrix(best_conf, phrases, fmt='grid')
     plot_validation_cost(cost_train, cost_val, class_rate)
 
 

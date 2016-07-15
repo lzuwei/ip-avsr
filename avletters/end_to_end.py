@@ -14,12 +14,12 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from custom_layers.custom import DeltaLayer
-
+from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
 from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer, BatchNormLayer, batch_norm
-from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
+from lasagne.nonlinearities import tanh, linear, sigmoid, rectify, leaky_rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint
 from lasagne.objectives import squared_error
 from nolearn.lasagne import NeuralNet
@@ -36,7 +36,50 @@ def test_delta():
     print(aa)
 
 
-def load_dbn(path='../../DBNExample/pretrained_nn.mat'):
+def test_concatlayer():
+    a = np.array([
+        [
+            [1, 2, 3, 4],
+            [1, 2, 3, 4],
+            [1, 2, 3, 4]
+        ],
+        [
+            [1, 2, 3, 4],
+            [1, 2, 3, 4],
+            [1, 2, 3, 4]
+        ]
+    ], dtype=np.int32)
+    b = np.array([
+        [
+            [5, 6, 7],
+            [5, 6, 7],
+            [5, 6, 7]
+        ],
+        [
+            [5, 6, 7],
+            [5, 6, 7],
+            [5, 6, 7]
+        ]
+    ], dtype=np.int32)
+
+    input_var = T.tensor3('input', dtype='int32')
+    dct_var = T.tensor3('dct', dtype='int32')
+    l_in = InputLayer((None, None, 4), input_var, name='input')
+    l_dct = InputLayer((None, None, 3), dct_var, name='dct')
+    l_merge = ConcatLayer([l_in, l_dct], axis=2, name='merge')
+    network = las.layers.get_all_layers(l_merge)
+    print_network(network)
+    output = las.layers.get_output(l_merge)
+    merge_fn = theano.function([input_var, dct_var], output, allow_input_downcast=True)
+    res = merge_fn(a, b)
+    assert res.shape == (2, 3, 7)
+
+
+def test_datagen(X, seqlens):
+    pass
+
+
+def load_dbn(path='models/avletters_ae.mat'):
     """
     load a pretrained dbn from path
     :param path: path to the .mat dbn
@@ -106,13 +149,13 @@ def load_finetuned_dbn(path):
             ('output', las.layers.DenseLayer)
         ],
         input_shape=(None, 1200),
-        l1_num_units=1000, l1_nonlinearity=sigmoid,
+        l1_num_units=2000, l1_nonlinearity=sigmoid,
         l2_num_units=1000, l2_nonlinearity=sigmoid,
-        l3_num_units=1000, l3_nonlinearity=sigmoid,
+        l3_num_units=500, l3_nonlinearity=sigmoid,
         l4_num_units=50, l4_nonlinearity=linear,
-        l5_num_units=1000, l5_nonlinearity=sigmoid,
+        l5_num_units=500, l5_nonlinearity=sigmoid,
         l6_num_units=1000, l6_nonlinearity=sigmoid,
-        l7_num_units=1000, l7_nonlinearity=sigmoid,
+        l7_num_units=2000, l7_nonlinearity=sigmoid,
         output_num_units=1200, output_nonlinearity=linear,
         update=nesterov_momentum,
         update_learning_rate=0.001,
@@ -132,140 +175,19 @@ def create_pretrained_encoder(weights, biases, incoming):
     l_1 = DenseLayer(incoming, 1000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
     l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
     l_3 = DenseLayer(l_2, 1000, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='encoder')
+    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
     return l_4
 
 
 def create_fc_encoder(incoming):
-    l_1 = DenseLayer(incoming, 1000, nonlinearity=rectify, name='fc1')
-    l_drop1 = DropoutLayer(l_1, name='drop1')
-    l_2 = DenseLayer(l_drop1, 1000, nonlinearity=rectify, name='fc2')
-    l_drop2 = DropoutLayer(l_2, name='drop2')
-    l_3 = DenseLayer(l_drop2, 1000, nonlinearity=rectify, name='fc3')
-    l_drop3 = DropoutLayer(l_3, name='drop3')
-    l_4 = DenseLayer(l_drop3, 50, nonlinearity=linear, name='encoder')
+    l_1 = batch_norm(DenseLayer(incoming, 2000, nonlinearity=leaky_rectify, name='fc1'))
+    #l_drop1 = DropoutLayer(l_1, name='drop1')
+    l_2 = batch_norm(DenseLayer(l_1, 1000, nonlinearity=leaky_rectify, name='fc2'))
+    #l_drop2 = DropoutLayer(l_2, name='drop2')
+    l_3 = batch_norm(DenseLayer(l_2, 500, nonlinearity=leaky_rectify, name='fc3'))
+    #l_drop3 = DropoutLayer(l_3, name='drop3')
+    l_4 = batch_norm(DenseLayer(l_3, 50, nonlinearity=leaky_rectify, name='bottleneck'))
     return l_4
-
-
-def print_layer_shape(layer):
-    print('[L] {}: {}'.format(layer.name, las.layers.get_output_shape(layer)))
-
-
-def print_network(network):
-    layers = las.layers.get_all_layers(network)
-    for layer in layers:
-        print_layer_shape(layer)
-
-
-def create_end_to_end_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                            lstm_size=250, win=T.iscalar('theta)')):
-
-    dbn_layers = dbn.get_all_layers()
-    weights = []
-    biases = []
-    weights.append(dbn_layers[1].W)
-    weights.append(dbn_layers[2].W)
-    weights.append(dbn_layers[3].W)
-    weights.append(dbn_layers[4].W)
-    biases.append(dbn_layers[1].b)
-    biases.append(dbn_layers[2].b)
-    biases.append(dbn_layers[3].b)
-    biases.append(dbn_layers[4].b)
-
-    l_in = InputLayer(input_shape, input_var, 'input')
-    l_mask = InputLayer(mask_shape, mask_var, 'mask')
-
-    symbolic_batchsize = l_in.input_var.shape[0]
-    symbolic_seqlen = l_in.input_var.shape[1]
-
-    print_layer_shape(l_in)
-    l_reshape1 = ReshapeLayer(l_in, (-1, input_shape[-1]), name='reshape1')
-    print_layer_shape(l_reshape1)
-    # l_encoder = create_fc_encoder(l_reshape1)
-    l_encoder = create_pretrained_encoder(weights, biases, l_reshape1)
-    print_layer_shape(l_encoder)
-    encoder_len = las.layers.get_output_shape(l_encoder)[-1]
-    l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
-    print_layer_shape(l_reshape2)
-    l_delta = DeltaLayer(l_reshape2, win, name='delta')
-    print_layer_shape(l_delta)
-
-    gate_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
-        b=las.init.Constant(0.))
-    cell_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
-        # Setting W_cell to None denotes that no cell connection will be used.
-        W_cell=None, b=las.init.Constant(0.),
-        # By convention, the cell nonlinearity is tanh in an LSTM.
-        nonlinearity=tanh)
-
-    N_HIDDEN = lstm_size
-    l_lstm = LSTMLayer(
-        l_delta, N_HIDDEN,
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='f_lstm1')
-    print_layer_shape(l_lstm)
-
-    # The "backwards" layer is the same as the first,
-    # except that the backwards argument is set to True.
-    l_lstm_back = LSTMLayer(
-        l_in, N_HIDDEN, ingate=gate_parameters,
-        mask_input=l_mask, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        learn_init=True, grad_clipping=5., backwards=True, name='b_lstm1')
-    print_layer_shape(l_lstm_back)
-
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
-    print_layer_shape(l_sum1)
-
-    # implement drop-out regularization
-    l_dropout = DropoutLayer(l_sum1, name='dropout1')
-    print_layer_shape(l_dropout)
-
-    l_lstm2 = LSTMLayer(
-        l_dropout, N_HIDDEN,
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='f_lstm2')
-    print_layer_shape(l_lstm2)
-
-    # The "backwards" layer is the same as the first,
-    # except that the backwards argument is set to True.
-    l_lstm_back2 = LSTMLayer(
-        l_dropout, N_HIDDEN, ingate=gate_parameters,
-        mask_input=l_mask, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        learn_init=True, grad_clipping=5., backwards=True, name='b_lstm2')
-    print_layer_shape(l_lstm_back2)
-
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm_back2])
-    print_layer_shape(l_sum2)
-
-    l_forward_slice1 = SliceLayer(l_sum2, -1, 1, name='slice1')
-    print_layer_shape(l_forward_slice1)
-
-    # Now, we can apply feed-forward layers as usual.
-    # We want the network to predict a classification for the sequence,
-    # so we'll use a the number of classes.
-    l_out = DenseLayer(
-        l_forward_slice1, num_units=26, nonlinearity=las.nonlinearities.softmax, name='output')
-    print_layer_shape(l_out)
-
-    return l_out
 
 
 def concat_first_second_deltas(X, vidlenvec):
@@ -294,17 +216,18 @@ def concat_first_second_deltas(X, vidlenvec):
     return Y
 
 
-def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
+def evaluate_model(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
     """
     Evaluate a lstm model
     :param X_val: validation inputs
     :param y_val: validation targets
     :param mask_val: input masks for variable sequences
+    :param dct_val: dct features
     :param window_size: size of window for computing delta coefficients
     :param eval_fn: evaluation function
     :return: classification rate, confusion matrix
     """
-    output = eval_fn(X_val, mask_val, window_size)
+    output = eval_fn(X_val, mask_val, dct_val, window_size)
     no_gps = output.shape[1]
     confusion_matrix = np.zeros((no_gps, no_gps), dtype='int')
 
@@ -503,8 +426,10 @@ def main():
     configure_theano()
     print('preprocessing dataset...')
     data = load_mat_file('data/allData_mouthROIs.mat')
+    dct_data = load_mat_file('data/dctFeat_AVLetters.mat')
 
     # create the necessary variable mappings
+    dct_feats = dct_data['dctFeatures']
     data_matrix = data['dataMatrix']
     data_matrix_len = data_matrix.shape[0]
     targets_vec = data['targetsVec']
@@ -524,6 +449,12 @@ def main():
     test_data = data_matrix[indexes == False]
     test_targets = targets_vec[indexes == False]
     test_targets = test_targets.reshape((len(test_targets),))
+
+    # split the dct features
+    train_dct = dct_feats[indexes == True].astype(np.float32)
+    test_dct = dct_feats[indexes == False].astype(np.float32)
+    train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
+    test_dct = (test_dct - dct_mean) / dct_std
 
     # indexes for a particular letter
     # idx = [i for i, elem in enumerate(test_targets) if elem == 20]
@@ -560,18 +491,42 @@ def main():
 
     window = T.iscalar('theta')
     inputs = T.tensor3('inputs', dtype='float32')
+    dct = T.tensor3('dct', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
+    lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
+    lr_decay = np.array(0.80, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
-    network = create_end_to_end_model(dbn, (None, None, 1200), inputs,
-                                      (None, None), mask, 250, window)
+    '''
+    network = adenet_v1.create_model(dbn, (None, None, 1200), inputs,
+                                     (None, None), mask,
+                                     (None, None, 90), dct,
+                                     250, window)
+
+    network = deltanet.create_model(dbn, (None, None, 1200), inputs,
+                                    (None, None), mask,
+                                    250, window)
+
+
+    network = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
+                                     (None, None), mask,
+                                     (None, None, 90), dct,
+                                     250, window)
+    '''
+
+    network = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
+                                     (None, None), mask,
+                                     (None, None, 90), dct,
+                                     250, window)
+
+    print_network(network)
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = las.updates.adadelta(cost, all_params)
-
+    updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
+    # updates = las.updates.adam(cost, all_params, learning_rate=lr)
 
     use_max_constraint = False
     if use_max_constraint:
@@ -581,24 +536,24 @@ def main():
                 updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
 
     train = theano.function(
-        [inputs, targets, mask, window],
+        [inputs, targets, mask, dct, window],
         cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs, targets, mask, window], cost, allow_input_downcast=True)
+    compute_train_cost = theano.function([inputs, targets, mask, dct, window], cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
     compute_test_cost = theano.function(
-        [inputs, targets, mask, window], test_cost, allow_input_downcast=True)
+        [inputs, targets, mask, dct, window], test_cost, allow_input_downcast=True)
 
-    val_fn = theano.function([inputs, mask, window], test_predictions, allow_input_downcast=True)
+    val_fn = theano.function([inputs, mask, dct, window], test_predictions, allow_input_downcast=True)
 
     # We'll train the network with 10 epochs of 30 minibatches each
     print('begin training...')
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 30
-    EPOCH_SIZE = 30
+    NUM_EPOCHS = 40
+    EPOCH_SIZE = 20
     BATCH_SIZE = 26
     WINDOW_SIZE = 9
     STRIP_SIZE = 3
@@ -606,13 +561,19 @@ def main():
     VALIDATION_WINDOW = 4
     val_window = circular_list(VALIDATION_WINDOW)
     train_strip = np.zeros((STRIP_SIZE,))
+    best_val = float('inf')
+    best_conf = None
+    best_cr = 0.0
 
     datagen = gen_lstm_batch_random(train_data_resized, train_targets, train_vidlen_vec, batchsize=BATCH_SIZE)
     val_datagen = gen_lstm_batch_random(test_data_resized, test_targets, test_vidlen_vec,
                                         batchsize=len(test_vidlen_vec))
+    integral_lens = compute_integral_len(train_vidlen_vec)
 
     # We'll use this "validation set" to periodically check progress
-    X_val, y_val, mask_val = next(val_datagen)
+    X_val, y_val, mask_val, idxs_val = next(val_datagen)
+    integral_lens_val = compute_integral_len(test_vidlen_vec)
+    dct_val = gen_seq_batch_from_idx(test_dct, idxs_val, test_vidlen_vec, integral_lens_val, np.max(test_vidlen_vec))
 
     def early_stop(cost_window):
         if len(cost_window) < 2:
@@ -628,11 +589,13 @@ def main():
 
     for epoch in range(NUM_EPOCHS):
         time_start = time.time()
-        for _ in range(EPOCH_SIZE):
-            X, y, m = next(datagen)
-            train(X, y, m, WINDOW_SIZE)
-        cost = compute_train_cost(X, y, m, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, WINDOW_SIZE)
+        for i in range(EPOCH_SIZE):
+            X, y, m, batch_idxs = next(datagen)
+            d = gen_seq_batch_from_idx(train_dct, batch_idxs,
+                                       train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
+            train(X, y, m, d, WINDOW_SIZE)
+        cost = compute_train_cost(X, y, m, d, WINDOW_SIZE)
+        val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, WINDOW_SIZE)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -642,27 +605,33 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, _ = evaluate_model(X_val, y_val, mask_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
         class_rate.append(cr)
 
         print("Epoch {} train cost = {}, validation cost = {}, "
               "generalization loss = {:.3f}, GQ = {:.3f}, classification rate = {:.3f} ({:.1f}sec)"
               .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
 
-        # if epoch >= VALIDATION_WINDOW and early_stop(val_window):
-        #    break
+        if val_cost < best_val:
+            best_val = val_cost
+            best_conf = val_conf
+            best_cr = cr
 
-    cr, conf = evaluate_model(X_val, y_val, mask_val, WINDOW_SIZE, val_fn)
+        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
+            break
+        # learning rate decay
+        if epoch > 10:
+            lr.set_value(lr.get_value() * lr_decay)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
                'h', 'i', 'j', 'k', 'l', 'm', 'n',
                'o', 'p', 'q', 'r', 's', 't', 'u',
                'v', 'w', 'x', 'y', 'z']
 
-    print('Final Model')
-    print('classification rate: {}'.format(cr))
+    print('Best Model')
+    print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
     print('confusion matrix: ')
-    plot_confusion_matrix(conf, letters, fmt='grid')
+    plot_confusion_matrix(best_conf, letters, fmt='grid')
     plot_validation_cost(cost_train, cost_val, class_rate)
 
 if __name__ == '__main__':
