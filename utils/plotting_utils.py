@@ -4,6 +4,7 @@ import math
 from tabulate import tabulate
 from matplotlib import cm
 import lasagne as las
+from PIL import Image
 
 
 # import pdb
@@ -147,13 +148,18 @@ def plot_validation_cost(train_error, val_error, class_rate=None):
     plt.show()
 
 
-def visualize_reconstruction(original, reconstructed, shape=(30, 40)):
+def visualize_reconstruction(original, reconstructed, shape=(30, 40), savefilename=None):
     w = int(math.sqrt(len(original)))
-    tile_raster_images(original, shape, (w, w), tile_spacing=(1, 1))
+    orig = tile_raster_images(original, shape, (w, w), tile_spacing=(1, 1))
     plt.title('original')
-    tile_raster_images(reconstructed, shape, (w, w), tile_spacing=(1, 1))
+    recon = tile_raster_images(reconstructed, shape, (w, w), tile_spacing=(1, 1))
     plt.title('reconstructed')
     plt.show()
+    if savefilename:
+        o = Image.fromarray(orig)
+        o.save('{}_orig.png'.format(savefilename))
+        r = Image.fromarray(recon)
+        r.save('{}_recon.png'.format(savefilename))
 
 
 def visualize_layer(layer, w, h):
