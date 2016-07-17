@@ -11,7 +11,7 @@ import theano
 import theano.tensor as T
 import lasagne as las
 import matplotlib
-# matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 import matplotlib.pyplot as plt
 
 # Lasagne Imports
@@ -201,7 +201,7 @@ def main():
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
 
     X_val_recon = recon_fn(X_val)
-    visualize_reconstruction(X_val_out[0:25], X_val_recon[0:25], shape=(28, 28), savefilename='mnist')
+    visualize_reconstruction(X_val_out[0:25], X_val_recon[0:25], shape=(30, 40), savefilename='mnist')
     plot_validation_cost(costs, val_costs, None, savefilename='valid_cost')
 
     conv2d1 = las.layers.get_all_layers(network)[1]
