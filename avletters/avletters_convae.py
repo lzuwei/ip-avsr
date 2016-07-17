@@ -184,6 +184,8 @@ def main():
 
     NUM_EPOCHS = 30
     EPOCH_SIZE = 96
+    NO_STRIDES = 3
+    STRIDE_SIZE = len(X) / NO_STRIDES
 
     costs = []
     val_costs = []
@@ -192,6 +194,10 @@ def main():
         for i in range(EPOCH_SIZE):
             batch_X, batch_y = next(datagen)
             train(batch_X, batch_y)
+            cost = 0
+            for j in range(NO_STRIDES):
+                j *= STRIDE_SIZE
+                cost += train_cost_fn(X[j:j + STRIDE_SIZE], X_out[j:j + STRIDE_SIZE])
         cost = train_cost_fn(X, X_out)
         val_cost = eval_cost_fn(X_val, X_val_out)
         costs.append(cost)
