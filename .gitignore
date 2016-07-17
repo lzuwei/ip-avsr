@@ -14,3 +14,7 @@ examples/
 
 # .pyc files
 *.pyc
+
+# png files
+*.png
+*.sh

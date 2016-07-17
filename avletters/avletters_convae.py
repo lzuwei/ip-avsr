@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 # Lasagne Imports
 from lasagne.layers import get_output, InputLayer, DenseLayer, Upscale2DLayer, ReshapeLayer, BatchNormLayer, batch_norm
-from lasagne.nonlinearities import rectify, leaky_rectify, tanh, linear
+from lasagne.nonlinearities import rectify, leaky_rectify, tanh, linear, sigmoid
 from lasagne.updates import nesterov_momentum
 from lasagne.objectives import categorical_crossentropy
 from nolearn.lasagne import visualize
@@ -44,8 +44,9 @@ def configure_theano():
 
 
 def create_model(input_var, input_shape):
-    conv_num_filters1 = 32
-    conv_num_filters2 = 16
+    conv_num_filters1 = 64
+    conv_num_filters2 = 32
+    conv_num_filters3 = 16
     filter_size1 = 7
     filter_size2 = 5
     filter_size3 = 3
@@ -56,26 +57,26 @@ def create_model(input_var, input_shape):
     pad_out = 'full'
 
     input = InputLayer(shape=input_shape, input_var=input_var, name='input')
-    conv2d1 = Conv2DLayer(input, num_filters=conv_num_filters1, filter_size=filter_size1, pad=pad_in, name='conv2d1')
-    conv2d2 = Conv2DLayer(conv2d1, num_filters=conv_num_filters2, filter_size=filter_size2, pad=pad_in, name='conv2d2')
+    conv2d1 = Conv2DLayer(input, num_filters=conv_num_filters1, filter_size=filter_size1, pad=pad_in, name='conv2d1', nonlinearity=tanh)
+    conv2d2 = Conv2DLayer(conv2d1, num_filters=conv_num_filters2, filter_size=filter_size2, pad=pad_in, name='conv2d2', nonlinearity=tanh)
     maxpool2d3 = MaxPool2DLayer(conv2d2, pool_size=pool_size, name='maxpool2d3', pad=(0, 1))
-    conv2d4 = Conv2DLayer(maxpool2d3, num_filters=2*conv_num_filters2, filter_size=filter_size3, pad=pad_in, name='conv2d4')
+    conv2d4 = Conv2DLayer(maxpool2d3, num_filters=2*conv_num_filters3, filter_size=filter_size3, pad=pad_in, name='conv2d4', nonlinearity=tanh)
     maxpool2d5 = MaxPool2DLayer(conv2d4, pool_size=pool_size, name='maxpool2d5')
-    reshape6 = ReshapeLayer(maxpool2d5, shape=([0], -1), name='reshape6')  # 1024
+    reshape6 = ReshapeLayer(maxpool2d5, shape=([0], -1), name='reshape6')  # 896
     dense7 = DenseLayer(reshape6, num_units=dense_mid_size, name='dense7', nonlinearity=tanh)
-    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=linear)
-    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=linear)
+    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=tanh)
+    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=tanh)
     dense9 = DenseLayer(dense8, num_units=896, W=dense7.W.T, nonlinearity=tanh, name='dense9')
-    reshape10 = ReshapeLayer(dense9, shape=([0], 2*conv_num_filters2, 4, 7), name='reshape10')  # 32 x 4 x 7
+    reshape10 = ReshapeLayer(dense9, shape=([0], 2*conv_num_filters3, 4, 7), name='reshape10')  # 32 x 4 x 7
     upscale2d11 = Upscale2DLayer(reshape10, scale_factor=pool_size, name='upscale11')
     deconv2d12 = Deconv2DLayer(upscale2d11, conv2d4.input_shape[1], conv2d4.filter_size, stride=conv2d4.stride,
-                               crop=conv2d4.pad, W=conv2d4.W, flip_filters=not conv2d4.flip_filters, name='deconv2d12')
+                               crop=conv2d4.pad, W=conv2d4.W, flip_filters=not conv2d4.flip_filters, name='deconv2d12', nonlinearity=tanh)
     upscale2d13 = Upscale2DLayer(deconv2d12, scale_factor=pool_size, name='upscale2d13')
     deconv2d14 = Deconv2DLayer(upscale2d13, conv2d2.input_shape[1], conv2d2.filter_size, stride=conv2d2.stride,
-                               crop=(0, 1), W=conv2d2.W, flip_filters=not conv2d2.flip_filters, name='deconv2d14')
+                               crop=(0, 1), W=conv2d2.W, flip_filters=not conv2d2.flip_filters, name='deconv2d14', nonlinearity=tanh)
                                # crop=conv2d2.pad, W=conv2d2.W, flip_filters=not conv2d2.flip_filters, name='deconv2d14')
     deconv2d15 = Deconv2DLayer(deconv2d14, conv2d1.input_shape[1], conv2d1.filter_size, stride=conv2d1.stride,
-                               crop=conv2d1.pad, W=conv2d1.W, flip_filters=not conv2d1.flip_filters, name='deconv2d15')
+                               crop=conv2d1.pad, W=conv2d1.W, flip_filters=not conv2d1.flip_filters, name='deconv2d15', nonlinearity=tanh)
     reshape16 = ReshapeLayer(deconv2d15, ([0], -1), name='reshape16')
     print_network(reshape16)
     return reshape16
@@ -191,7 +192,7 @@ def main():
     print('begin training...')
     datagen = batch_iterator(X, X_out, 128)
 
-    NUM_EPOCHS = 30
+    NUM_EPOCHS = 20
     EPOCH_SIZE = 96
     NO_STRIDES = 3
     VAL_NO_STRIDES = 3
@@ -213,11 +214,11 @@ def main():
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
 
     X_val_recon = recon_fn(X_val)
-    visualize_reconstruction(X_val_out[0:25], X_val_recon[0:25], shape=(30, 40), savefilename='mnist')
+    visualize_reconstruction(X_val_out[500:525], X_val_recon[500:525], shape=(30, 40), savefilename='avletters')
     plot_validation_cost(costs, val_costs, None, savefilename='valid_cost')
 
     conv2d1 = las.layers.get_all_layers(network)[1]
-    visualize.plot_conv_weights(conv2d1, (8, 4)).savefig('conv2d1.png')
+    visualize.plot_conv_weights(conv2d1, (8, 8)).savefig('conv2d1.png')
 
 
 if __name__ == '__main__':
