@@ -132,6 +132,15 @@ def generate_data(path='data/allData_mouthROIs.mat'):
     return train_data_resized, test_data_resized
 
 
+def batch_compute_cost(X, y, no_strides, cost_fn):
+    cost = 0.0
+    stride_size = len(X) / no_strides
+    for j in range(no_strides):
+        j *= stride_size
+        cost += cost_fn(X[j:j + stride_size], y[j:j + stride_size])
+    return cost / float(no_strides)
+
+
 def main():
     configure_theano()
     X, X_val = generate_data()
@@ -141,7 +150,7 @@ def main():
     print('X.min():', X.min())
     print('X.max():', X.max())
 
-    X_val = np.reshape(X_val, (-1, 1, 30, 40))
+    X_val = np.reshape(X_val, (-1, 1, 30, 40))[:-1]
     print('X_val type and shape:', X_val.dtype, X_val.shape)
     print('X_val.min():', X_val.min())
     print('X_val.max():', X_val.max())
@@ -185,7 +194,7 @@ def main():
     NUM_EPOCHS = 30
     EPOCH_SIZE = 96
     NO_STRIDES = 3
-    STRIDE_SIZE = len(X) / NO_STRIDES
+    VAL_NO_STRIDES = 3
 
     costs = []
     val_costs = []
@@ -194,12 +203,9 @@ def main():
         for i in range(EPOCH_SIZE):
             batch_X, batch_y = next(datagen)
             train(batch_X, batch_y)
-            cost = 0
-            for j in range(NO_STRIDES):
-                j *= STRIDE_SIZE
-                cost += train_cost_fn(X[j:j + STRIDE_SIZE], X_out[j:j + STRIDE_SIZE])
-        cost = train_cost_fn(X, X_out)
-        val_cost = eval_cost_fn(X_val, X_val_out)
+
+        cost = batch_compute_cost(X, X_out, NO_STRIDES, train_cost_fn)
+        val_cost = batch_compute_cost(X_val, X_val_out, VAL_NO_STRIDES, eval_cost_fn)
         costs.append(cost)
         val_costs.append(val_cost)
 
