@@ -43,7 +43,7 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def create_scaled_tanh(scale_in=0.66667, scale_out=1.7159):
+def create_scaled_tanh(scale_in=0.5, scale_out=2.4):
     """
     create a scaled hyperbolic tangent to avoid saturation given input range
     of {-1, 1}. Refer to
@@ -127,9 +127,9 @@ def create_model2(input_var, input_shape):
     reshape6 = ReshapeLayer(conv2d5, shape=([0], -1), name='reshape6')  # 3000
     reshape6_output = reshape6.output_shape[1]
     dense7 = DenseLayer(reshape6, num_units=dense_mid_size, name='dense7', nonlinearity=scaled_tanh)
-    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=scaled_tanh)
+    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=rectify)
     # print_network(bottleneck)
-    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=scaled_tanh)
+    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=rectify)
     dense9 = DenseLayer(dense8, num_units=reshape6_output, W=dense7.W.T, nonlinearity=scaled_tanh, name='dense9')
     reshape10 = ReshapeLayer(dense9, shape=([0], conv_num_filters3, 3, 5), name='reshape10')  # 32 x 4 x 7
     deconv2d11 = Deconv2DLayer(reshape10, conv2d5.input_shape[1], conv2d5.filter_size, stride=conv2d5.stride,
@@ -256,7 +256,7 @@ def main():
     recon = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.squared_error(recon, target_var))
-    updates = las.updates.adadelta(cost, all_params, 0.8)
+    updates = las.updates.adadelta(cost, all_params, 0.6)
     # updates = las.updates.nesterov_momentum(cost, all_params, learning_rate=0.01, momentum=0.9)
 
     train = theano.function([input_var, target_var], recon, updates=updates, allow_input_downcast=True)
