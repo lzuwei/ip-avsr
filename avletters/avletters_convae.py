@@ -1,5 +1,5 @@
 from __future__ import print_function
-import os, sys, urllib, gzip, time
+import os, sys, urllib, gzip, time, argparse
 sys.path.insert(0, '../')
 try:
     import cPickle as pickle
@@ -74,12 +74,51 @@ def create_model(input_var, input_shape):
     upscale2d13 = Upscale2DLayer(deconv2d12, scale_factor=pool_size, name='upscale2d13')
     deconv2d14 = Deconv2DLayer(upscale2d13, conv2d2.input_shape[1], conv2d2.filter_size, stride=conv2d2.stride,
                                crop=(0, 1), W=conv2d2.W, flip_filters=not conv2d2.flip_filters, name='deconv2d14', nonlinearity=tanh)
-                               # crop=conv2d2.pad, W=conv2d2.W, flip_filters=not conv2d2.flip_filters, name='deconv2d14')
     deconv2d15 = Deconv2DLayer(deconv2d14, conv2d1.input_shape[1], conv2d1.filter_size, stride=conv2d1.stride,
                                crop=conv2d1.pad, W=conv2d1.W, flip_filters=not conv2d1.flip_filters, name='deconv2d15', nonlinearity=tanh)
     reshape16 = ReshapeLayer(deconv2d15, ([0], -1), name='reshape16')
     print_network(reshape16)
     return reshape16
+
+
+def create_model2(input_var, input_shape):
+    conv_num_filters1 = 100
+    conv_num_filters2 = 150
+    conv_num_filters3 = 200
+    filter_size1 = 5
+    filter_size2 = 5
+    filter_size3 = 3
+    pool_size = 2
+    encode_size = 100
+    dense_mid_size = 512
+    pad_in = 'valid'
+    pad_out = 'full'
+
+    input = InputLayer(shape=input_shape, input_var=input_var, name='input')
+    conv2d1 = Conv2DLayer(input, num_filters=conv_num_filters1, filter_size=filter_size1, pad=pad_in, name='conv2d1', nonlinearity=tanh)
+    maxpool2d2 = MaxPool2DLayer(conv2d1, pool_size=pool_size, name='maxpool2d2')
+    conv2d3 = Conv2DLayer(maxpool2d2, num_filters=conv_num_filters2, filter_size=filter_size2, pad=pad_in, name='conv2d3', nonlinearity=tanh)
+    maxpool2d4 = MaxPool2DLayer(conv2d3, pool_size=pool_size, name='maxpool2d4', pad=(1,0))
+    conv2d5 = Conv2DLayer(maxpool2d4, num_filters=conv_num_filters3, filter_size=filter_size3, pad=pad_in, name='conv2d5', nonlinearity=tanh)
+    reshape6 = ReshapeLayer(conv2d5, shape=([0], -1), name='reshape6')  # 1200
+    reshape6_output = reshape6.output_shape[1]
+    dense7 = DenseLayer(reshape6, num_units=dense_mid_size, name='dense7', nonlinearity=tanh)
+    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=tanh)
+    # print_network(bottleneck)
+    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=tanh)
+    dense9 = DenseLayer(dense8, num_units=reshape6_output, W=dense7.W.T, nonlinearity=tanh, name='dense9')
+    reshape10 = ReshapeLayer(dense9, shape=([0], conv_num_filters3, 3, 5), name='reshape10')  # 32 x 4 x 7
+    deconv2d11 = Deconv2DLayer(reshape10, conv2d5.input_shape[1], conv2d5.filter_size, stride=conv2d5.stride,
+                               W=conv2d5.W, flip_filters=not conv2d5.flip_filters, name='deconv2d12', nonlinearity=tanh)
+    upscale2d11 = Upscale2DLayer(deconv2d11, scale_factor=pool_size, name='upscale2d11')
+    deconv2d12 = Deconv2DLayer(upscale2d11, conv2d3.input_shape[1], conv2d3.filter_size, stride=conv2d3.stride,
+                               W=conv2d3.W, flip_filters=not conv2d3.flip_filters, name='deconv2d14', nonlinearity=tanh)
+    upscale2d13 = Upscale2DLayer(deconv2d12, scale_factor=pool_size, name='upscale2d13')
+    deconv2d14 = Deconv2DLayer(upscale2d13, conv2d1.input_shape[1], conv2d1.filter_size, stride=conv2d1.stride,
+                               crop=(1, 0), W=conv2d1.W, flip_filters=not conv2d1.flip_filters, name='deconv2d15', nonlinearity=tanh)
+    reshape15 = ReshapeLayer(deconv2d14, ([0], -1), name='reshape16')
+    print_network(reshape15)
+    return reshape15
 
 
 def apply_gaussian_noise(input, noise_factor=0.4):
@@ -142,8 +181,23 @@ def batch_compute_cost(X, y, no_strides, cost_fn):
     return cost / float(no_strides)
 
 
+def parse_options():
+    options = dict()
+    options['NUM_EPOCHS'] = 20
+    options['EPOCH_SIZE'] = 96
+    options['NO_STRIDES'] = 3
+    options['VAL_NO_STRIDES'] = 3
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', help='number of epochs to run')
+    args = parser.parse_args()
+    if args.epochs:
+        options['NUM_EPOCHS'] = int(args.epochs)
+    return options
+
+
 def main():
     configure_theano()
+    options = parse_options()
     X, X_val = generate_data()
 
     X = np.reshape(X, (-1, 1, 30, 40))[:-5]
@@ -170,7 +224,7 @@ def main():
     input_var = T.tensor4('input', dtype='float32')
     target_var = T.matrix('output', dtype='float32')
 
-    network = create_model(input_var, (None, 1, 30, 40))
+    network = create_model2(input_var, (None, 1, 30, 40))
 
     # conv2d1 = las.layers.get_all_layers(network)[1]
     # visualize.plot_conv_weights(conv2d1, (15, 15)).savefig('conv2d1.png')
@@ -189,13 +243,13 @@ def main():
     eval_cost_fn = theano.function([input_var, target_var], eval_cost, allow_input_downcast=True)
     recon_fn = theano.function([input_var], eval_recon, allow_input_downcast=True)
 
-    print('begin training...')
-    datagen = batch_iterator(X, X_out, 128)
+    NUM_EPOCHS = options['NUM_EPOCHS']
+    EPOCH_SIZE = options['EPOCH_SIZE']
+    NO_STRIDES = options['NO_STRIDES']
+    VAL_NO_STRIDES = options['VAL_NO_STRIDES']
 
-    NUM_EPOCHS = 20
-    EPOCH_SIZE = 96
-    NO_STRIDES = 3
-    VAL_NO_STRIDES = 3
+    print('begin training for {} epochs...'.format(NUM_EPOCHS))
+    datagen = batch_iterator(X, X_out, 128)
 
     costs = []
     val_costs = []
@@ -214,11 +268,11 @@ def main():
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
 
     X_val_recon = recon_fn(X_val)
-    visualize_reconstruction(X_val_out[500:525], X_val_recon[500:525], shape=(30, 40), savefilename='avletters')
+    visualize_reconstruction(X_val_out[450:550], X_val_recon[450:550], shape=(30, 40), savefilename='avletters')
     plot_validation_cost(costs, val_costs, None, savefilename='valid_cost')
 
     conv2d1 = las.layers.get_all_layers(network)[1]
-    visualize.plot_conv_weights(conv2d1, (8, 8)).savefig('conv2d1.png')
+    visualize.plot_conv_weights(conv2d1, (10, 10)).savefig('conv2d1.png')
 
 
 if __name__ == '__main__':
