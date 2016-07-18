@@ -65,46 +65,7 @@ def create_scaled_tanh(scale_in=0.5, scale_out=2.4):
     return ScaledTanh(scale_in, scale_out)
 
 
-def create_model(input_var, input_shape):
-    conv_num_filters1 = 64
-    conv_num_filters2 = 32
-    conv_num_filters3 = 16
-    filter_size1 = 7
-    filter_size2 = 5
-    filter_size3 = 3
-    pool_size = 2
-    encode_size = 80
-    dense_mid_size = 512
-    pad_in = 'valid'
-    pad_out = 'full'
-    scaled_tanh = create_scaled_tanh()
-
-    input = InputLayer(shape=input_shape, input_var=input_var, name='input')
-    conv2d1 = Conv2DLayer(input, num_filters=conv_num_filters1, filter_size=filter_size1, pad=pad_in, name='conv2d1', nonlinearity=scaled_tanh)
-    conv2d2 = Conv2DLayer(conv2d1, num_filters=conv_num_filters2, filter_size=filter_size2, pad=pad_in, name='conv2d2', nonlinearity=scaled_tanh)
-    maxpool2d3 = MaxPool2DLayer(conv2d2, pool_size=pool_size, name='maxpool2d3', pad=(0, 1))
-    conv2d4 = Conv2DLayer(maxpool2d3, num_filters=2*conv_num_filters3, filter_size=filter_size3, pad=pad_in, name='conv2d4', nonlinearity=scaled_tanh)
-    maxpool2d5 = MaxPool2DLayer(conv2d4, pool_size=pool_size, name='maxpool2d5')
-    reshape6 = ReshapeLayer(maxpool2d5, shape=([0], -1), name='reshape6')  # 896
-    dense7 = DenseLayer(reshape6, num_units=dense_mid_size, name='dense7', nonlinearity=scaled_tanh)
-    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=scaled_tanh)
-    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=linear)
-    dense9 = DenseLayer(dense8, num_units=896, W=dense7.W.T, nonlinearity=linear, name='dense9')
-    reshape10 = ReshapeLayer(dense9, shape=([0], 2*conv_num_filters3, 4, 7), name='reshape10')  # 32 x 4 x 7
-    upscale2d11 = Upscale2DLayer(reshape10, scale_factor=pool_size, name='upscale11')
-    deconv2d12 = Deconv2DLayer(upscale2d11, conv2d4.input_shape[1], conv2d4.filter_size, stride=conv2d4.stride,
-                               crop=conv2d4.pad, W=conv2d4.W, flip_filters=not conv2d4.flip_filters, name='deconv2d12', nonlinearity=scaled_tanh)
-    upscale2d13 = Upscale2DLayer(deconv2d12, scale_factor=pool_size, name='upscale2d13')
-    deconv2d14 = Deconv2DLayer(upscale2d13, conv2d2.input_shape[1], conv2d2.filter_size, stride=conv2d2.stride,
-                               crop=(0, 1), W=conv2d2.W, flip_filters=not conv2d2.flip_filters, name='deconv2d14', nonlinearity=scaled_tanh)
-    deconv2d15 = Deconv2DLayer(deconv2d14, conv2d1.input_shape[1], conv2d1.filter_size, stride=conv2d1.stride,
-                               crop=conv2d1.pad, W=conv2d1.W, flip_filters=not conv2d1.flip_filters, name='deconv2d15', nonlinearity=scaled_tanh)
-    reshape16 = ReshapeLayer(deconv2d15, ([0], -1), name='reshape16')
-    print_network(reshape16)
-    return reshape16
-
-
-def create_model2(input_var, input_shape):
+def create_model(input_var, input_shape, options):
     conv_num_filters1 = 100
     conv_num_filters2 = 150
     conv_num_filters3 = 200
@@ -112,8 +73,8 @@ def create_model2(input_var, input_shape):
     filter_size2 = 5
     filter_size3 = 3
     pool_size = 2
-    encode_size = 100
-    dense_mid_size = 300
+    encode_size = options['BOTTLENECK']
+    dense_mid_size = options['DENSE']
     pad_in = 'valid'
     pad_out = 'full'
     scaled_tanh = create_scaled_tanh()
@@ -211,11 +172,19 @@ def parse_options():
     options['EPOCH_SIZE'] = 96
     options['NO_STRIDES'] = 3
     options['VAL_NO_STRIDES'] = 3
+    options['DENSE'] = 300
+    options['BOTTLENECK'] = 50
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', help='number of epochs to run')
+    parser.add_argument('--bottleneck', help='bottleneck size')
+    parser.add_argument('--dense', help='dense layer size')
     args = parser.parse_args()
     if args.epochs:
         options['NUM_EPOCHS'] = int(args.epochs)
+    if args.bottleneck:
+        options['BOTTLENECK'] = int(args.bottleneck)
+    if args.dense:
+        options['DENSE'] = int(args.dense)
     return options
 
 
@@ -250,7 +219,7 @@ def main():
     lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(0.80, dtype=theano.config.floatX)
 
-    network = create_model2(input_var, (None, 1, 30, 40))
+    network = create_model(input_var, (None, 1, 30, 40), options)
 
     # conv2d1 = las.layers.get_all_layers(network)[1]
     # visualize.plot_conv_weights(conv2d1, (15, 15)).savefig('conv2d1.png')
