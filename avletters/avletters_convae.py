@@ -112,8 +112,8 @@ def create_model2(input_var, input_shape):
     filter_size2 = 5
     filter_size3 = 3
     pool_size = 2
-    encode_size = 80
-    dense_mid_size = 1500
+    encode_size = 100
+    dense_mid_size = 300
     pad_in = 'valid'
     pad_out = 'full'
     scaled_tanh = create_scaled_tanh()
@@ -127,9 +127,9 @@ def create_model2(input_var, input_shape):
     reshape6 = ReshapeLayer(conv2d5, shape=([0], -1), name='reshape6')  # 3000
     reshape6_output = reshape6.output_shape[1]
     dense7 = DenseLayer(reshape6, num_units=dense_mid_size, name='dense7', nonlinearity=scaled_tanh)
-    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=rectify)
+    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=scaled_tanh)
     # print_network(bottleneck)
-    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=rectify)
+    dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=scaled_tanh)
     dense9 = DenseLayer(dense8, num_units=reshape6_output, W=dense7.W.T, nonlinearity=scaled_tanh, name='dense9')
     reshape10 = ReshapeLayer(dense9, shape=([0], conv_num_filters3, 3, 5), name='reshape10')  # 32 x 4 x 7
     deconv2d11 = Deconv2DLayer(reshape10, conv2d5.input_shape[1], conv2d5.filter_size, stride=conv2d5.stride,
