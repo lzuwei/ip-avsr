@@ -89,7 +89,7 @@ def create_model2(input_var, input_shape):
     filter_size2 = 5
     filter_size3 = 3
     pool_size = 2
-    encode_size = 100
+    encode_size = 80
     dense_mid_size = 512
     pad_in = 'valid'
     pad_out = 'full'
