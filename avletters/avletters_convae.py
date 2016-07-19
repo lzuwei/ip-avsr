@@ -220,7 +220,7 @@ def main():
     input_var = T.tensor3('input', dtype='float32')
     target_var = T.matrix('output', dtype='float32')
     lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.80, dtype=theano.config.floatX)
+    lr_decay = np.array(0.9, dtype=theano.config.floatX)
 
     # try building a reshaping layer
     # network = create_model(input_var, (None, 1, 30, 40), options)
@@ -274,7 +274,7 @@ def main():
 
         print("Epoch {} train cost = {}, validation cost = {} ({:.1f}sec) "
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
-        if epoch > 10:
+        if epoch > 15:
             lr.set_value(lr.get_value() * lr_decay)
 
     X_val_recon = recon_fn(X_val)
@@ -286,6 +286,7 @@ def main():
 
     print('saving encoder...')
     save_model(encoder, 'models/conv_encoder.dat')
+    save_model(network, 'models/conv_ae.dat')
 
 
 if __name__ == '__main__':

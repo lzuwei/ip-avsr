@@ -1,3 +1,4 @@
+from __future__ import print_function
 import sys
 sys.path.insert(0, '../')
 import os
@@ -8,6 +9,9 @@ import logging
 import theano.tensor as T
 import theano
 
+import matplotlib
+matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+
 import lasagne as las
 from utils.preprocessing import *
 from utils.plotting_utils import *
@@ -15,7 +19,7 @@ from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
 from custom_layers.custom import DeltaLayer
-from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3
+from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, adenet_v4
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
@@ -483,20 +487,26 @@ def main():
     if save:
         pickle.dump(dbn, open('models/1k_bot_dbn_finetune.dat', 'wb'))
 
-    load = True
+    load = False
     if load:
         print('loading pre-trained encoding layers...')
         dbn = pickle.load(open('models/1k_bot_dbn_finetune.dat', 'rb'))
         dbn.initialize()
         # exit()
 
+    load_convae = True
+    if load_convae:
+        print('loading pre-trained convolutional autoencoder...')
+        encoder = load_model('models/conv_encoder.dat')
+        inputs = las.layers.get_all_layers(encoder)[0].input_var
+    else:
+        inputs = T.tensor3('inputs', dtype='float32')
     window = T.iscalar('theta')
-    inputs = T.tensor3('inputs', dtype='float32')
     dct = T.tensor3('dct', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
     lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.80, dtype=theano.config.floatX)
+    lr_decay = np.array(0.9, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
     '''
@@ -514,10 +524,15 @@ def main():
                                      (None, None), mask,
                                      (None, None, 90), dct,
                                      250, window)
-    '''
+
 
     network = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
                                      (None, None), mask,
+                                     (None, None, 90), dct,
+                                     250, window)
+    '''
+
+    network = adenet_v4.create_model(encoder, (None, None), mask,
                                      (None, None, 90), dct,
                                      250, window)
 
@@ -553,7 +568,7 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 40
+    NUM_EPOCHS = 25
     EPOCH_SIZE = 20
     BATCH_SIZE = 26
     WINDOW_SIZE = 9
@@ -594,7 +609,11 @@ def main():
             X, y, m, batch_idxs = next(datagen)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
+            print_str = 'Epoch {} batch {}/{}: {} examples'.format(epoch + 1, i + 1, EPOCH_SIZE, len(X))
+            print(print_str, end='')
+            sys.stdout.flush()
             train(X, y, m, d, WINDOW_SIZE)
+            print('\r', end='')
         cost = compute_train_cost(X, y, m, d, WINDOW_SIZE)
         val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, WINDOW_SIZE)
         cost_train.append(cost)
@@ -621,7 +640,7 @@ def main():
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
         # learning rate decay
-        if epoch > 10:
+        if epoch > 8:
             lr.set_value(lr.get_value() * lr_decay)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
@@ -633,7 +652,7 @@ def main():
     print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
     print('confusion matrix: ')
     plot_confusion_matrix(best_conf, letters, fmt='grid')
-    plot_validation_cost(cost_train, cost_val, class_rate)
+    plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost.png')
 
 if __name__ == '__main__':
     main()
