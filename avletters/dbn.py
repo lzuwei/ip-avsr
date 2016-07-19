@@ -12,6 +12,7 @@ from utils.preprocessing import *
 from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
+from utils.io import *
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer

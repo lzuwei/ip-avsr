@@ -34,8 +34,10 @@ except ImportError:
     print('Using lasagne.layers (slower)')
 
 from utils.plotting_utils import print_network, visualize_reconstruction, visualize_layer, plot_validation_cost
-from utils.datagen import batch_iterator
+from utils.datagen import batch_iterator, sequence_batch_iterator
 from utils.preprocessing import *
+from modelzoo import avletters_convae
+from utils.io import *
 
 
 def configure_theano():
@@ -193,12 +195,12 @@ def main():
     options = parse_options()
     X, X_val = generate_data()
 
-    X = np.reshape(X, (-1, 1, 30, 40))[:-5]
+    # X = np.reshape(X, (-1, 1, 30, 40))[:-5]
     print('X type and shape:', X.dtype, X.shape)
     print('X.min():', X.min())
     print('X.max():', X.max())
 
-    X_val = np.reshape(X_val, (-1, 1, 30, 40))[:-1]
+    # X_val = np.reshape(X_val, (-1, 1, 30, 40))[:-1]
     print('X_val type and shape:', X_val.dtype, X_val.shape)
     print('X_val.min():', X_val.min())
     print('X_val.max():', X_val.max())
@@ -214,15 +216,21 @@ def main():
     # X = np.reshape(X_noisy, (-1, 1, 28, 28))
 
     print('constructing and compiling model...')
-    input_var = T.tensor4('input', dtype='float32')
+    # input_var = T.tensor4('input', dtype='float32')
+    input_var = T.tensor3('input', dtype='float32')
     target_var = T.matrix('output', dtype='float32')
     lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(0.80, dtype=theano.config.floatX)
 
-    network = create_model(input_var, (None, 1, 30, 40), options)
+    # try building a reshaping layer
+    # network = create_model(input_var, (None, 1, 30, 40), options)
+    l_input = InputLayer((None, None, 1200), input_var, name='input')
+    l_input = ReshapeLayer(l_input, (-1, 1, 30, 40), name='reshape_input')
+    # l_input = InputLayer((None, 1, 30, 40), input_var, name='input')
+    network, encoder = avletters_convae.create_model(l_input, options)
 
-    # conv2d1 = las.layers.get_all_layers(network)[1]
-    # visualize.plot_conv_weights(conv2d1, (15, 15)).savefig('conv2d1.png')
+    print('AE Network architecture:')
+    print_network(network)
 
     recon = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
@@ -252,7 +260,12 @@ def main():
         time_start = time.time()
         for i in range(EPOCH_SIZE):
             batch_X, batch_y = next(datagen)
+            print_str = 'Epoch {} batch {}/{}: {} examples'.format(epoch + 1, i + 1, EPOCH_SIZE, len(batch_X))
+            print(print_str, end='')
+            sys.stdout.flush()
+            batch_X = batch_X.reshape((-1, 1, 1200))
             train(batch_X, batch_y)
+            print('\r', end='')
 
         cost = batch_compute_cost(X, X_out, NO_STRIDES, train_cost_fn)
         val_cost = batch_compute_cost(X_val, X_val_out, VAL_NO_STRIDES, eval_cost_fn)
@@ -268,8 +281,11 @@ def main():
     visualize_reconstruction(X_val_out[450:550], X_val_recon[450:550], shape=(30, 40), savefilename='avletters')
     plot_validation_cost(costs, val_costs, None, savefilename='valid_cost')
 
-    conv2d1 = las.layers.get_all_layers(network)[1]
+    conv2d1 = las.layers.get_all_layers(network)[2]
     visualize.plot_conv_weights(conv2d1, (10, 10)).savefig('conv2d1.png')
+
+    print('saving encoder...')
+    save_model(encoder, 'models/conv_encoder.dat')
 
 
 if __name__ == '__main__':

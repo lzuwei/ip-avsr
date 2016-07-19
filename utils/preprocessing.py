@@ -2,7 +2,6 @@
 
 import numpy as np
 import numpy.matlib as matlab
-import scipy.io as sio
 import scipy.signal as signal
 from scipy.misc import imresize
 
@@ -42,15 +41,6 @@ def deltas(x, w=9):
 
     # trim the edges
     return d[:, hlen*2: hlen*2 + num_cols]
-
-
-def load_mat_file(path):
-    """
-    Loads .mat file
-    :param path: path to .mat file
-    :return: dictionary containing .mat data
-    """
-    return sio.loadmat(path)
 
 
 def create_split_index(data_len, vid_len_vec, iter_vec):
