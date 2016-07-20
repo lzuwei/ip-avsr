@@ -506,7 +506,7 @@ def main():
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
     lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.9, dtype=theano.config.floatX)
+    lr_decay = np.array(0.5, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
     '''
@@ -640,7 +640,8 @@ def main():
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
         # learning rate decay
-        if epoch > 8:
+        # every 4 epochs 1/2 the learning rate
+        if epoch > 7 and (epoch + 1) % 4 == 0:
             lr.set_value(lr.get_value() * lr_decay)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
