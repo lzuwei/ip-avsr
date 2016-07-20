@@ -274,8 +274,9 @@ def main():
 
         print("Epoch {} train cost = {}, validation cost = {} ({:.1f}sec) "
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
-        if epoch > 9 and epoch % 10 == 0:
+        if epoch >= 10 and epoch % 10 == 0:
             lr.set_value(lr.get_value() * lr_decay)
+            print('Learning rate decay to: {}'.format(lr.get_value()))
 
     X_val_recon = recon_fn(X_val)
     visualize_reconstruction(X_val_out[450:550], X_val_recon[450:550], shape=(30, 40), savefilename='avletters')
