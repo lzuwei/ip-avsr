@@ -219,8 +219,8 @@ def main():
     # input_var = T.tensor4('input', dtype='float32')
     input_var = T.tensor3('input', dtype='float32')
     target_var = T.matrix('output', dtype='float32')
-    lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.9, dtype=theano.config.floatX)
+    lr = theano.shared(np.array(1.0, dtype=theano.config.floatX), name='learning_rate')
+    lr_decay = np.array(0.5, dtype=theano.config.floatX)
 
     # try building a reshaping layer
     # network = create_model(input_var, (None, 1, 30, 40), options)
@@ -236,7 +236,7 @@ def main():
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.squared_error(recon, target_var))
     updates = las.updates.adadelta(cost, all_params, lr)
-    # updates = las.updates.nesterov_momentum(cost, all_params, learning_rate=0.01, momentum=0.9)
+    # updates = las.updates.apply_nesterov_momentum(updates, all_params, momentum=0.8)
 
     train = theano.function([input_var, target_var], recon, updates=updates, allow_input_downcast=True)
     train_cost_fn = theano.function([input_var, target_var], cost, allow_input_downcast=True)
@@ -274,7 +274,7 @@ def main():
 
         print("Epoch {} train cost = {}, validation cost = {} ({:.1f}sec) "
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
-        if epoch > 18:
+        if epoch > 9 and epoch % 10 == 0:
             lr.set_value(lr.get_value() * lr_decay)
 
     X_val_recon = recon_fn(X_val)
