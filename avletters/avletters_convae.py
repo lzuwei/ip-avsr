@@ -36,7 +36,7 @@ except ImportError:
 from utils.plotting_utils import print_network, visualize_reconstruction, visualize_layer, plot_validation_cost
 from utils.datagen import batch_iterator, sequence_batch_iterator
 from utils.preprocessing import *
-from modelzoo import avletters_convae, avletters_convae_bndrop
+from modelzoo import avletters_convae, avletters_convae_bndrop, avletters_convae_bn
 from utils.io import *
 
 
@@ -219,7 +219,7 @@ def main():
     # input_var = T.tensor4('input', dtype='float32')
     input_var = T.tensor3('input', dtype='float32')
     target_var = T.matrix('output', dtype='float32')
-    lr = theano.shared(np.array(1.0, dtype=theano.config.floatX), name='learning_rate')
+    lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(0.5, dtype=theano.config.floatX)
 
     # try building a reshaping layer
@@ -227,7 +227,7 @@ def main():
     l_input = InputLayer((None, None, 1200), input_var, name='input')
     l_input = ReshapeLayer(l_input, (-1, 1, 30, 40), name='reshape_input')
     # l_input = InputLayer((None, 1, 30, 40), input_var, name='input')
-    network, encoder = avletters_convae_bndrop.create_model(l_input, options)
+    network, encoder = avletters_convae_bn.create_model(l_input, options)
 
     print('AE Network architecture:')
     print_network(network)

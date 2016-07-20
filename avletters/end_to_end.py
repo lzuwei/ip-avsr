@@ -643,6 +643,7 @@ def main():
         # every 4 epochs 1/2 the learning rate
         if epoch > 7 and (epoch + 1) % 4 == 0:
             lr.set_value(lr.get_value() * lr_decay)
+            print('Learning rate decay to: {}'.format(lr.get_value()))
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
                'h', 'i', 'j', 'k', 'l', 'm', 'n',
