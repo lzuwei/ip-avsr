@@ -652,7 +652,7 @@ def main():
     print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
     print('confusion matrix: ')
     plot_confusion_matrix(best_conf, letters, fmt='grid')
-    plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost.png')
+    plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost')
 
 if __name__ == '__main__':
     main()

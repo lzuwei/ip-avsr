@@ -36,7 +36,7 @@ except ImportError:
 from utils.plotting_utils import print_network, visualize_reconstruction, visualize_layer, plot_validation_cost
 from utils.datagen import batch_iterator, sequence_batch_iterator
 from utils.preprocessing import *
-from modelzoo import avletters_convae
+from modelzoo import avletters_convae, avletters_convae_bndrop
 from utils.io import *
 
 
@@ -227,7 +227,7 @@ def main():
     l_input = InputLayer((None, None, 1200), input_var, name='input')
     l_input = ReshapeLayer(l_input, (-1, 1, 30, 40), name='reshape_input')
     # l_input = InputLayer((None, 1, 30, 40), input_var, name='input')
-    network, encoder = avletters_convae.create_model(l_input, options)
+    network, encoder = avletters_convae_bndrop.create_model(l_input, options)
 
     print('AE Network architecture:')
     print_network(network)
@@ -281,7 +281,7 @@ def main():
     visualize_reconstruction(X_val_out[450:550], X_val_recon[450:550], shape=(30, 40), savefilename='avletters')
     plot_validation_cost(costs, val_costs, None, savefilename='valid_cost')
 
-    conv2d1 = las.layers.get_all_layers(network)[2]
+    conv2d1 = las.layers.get_all_layers(network)[3]
     visualize.plot_conv_weights(conv2d1, (10, 10)).savefig('conv2d1.png')
 
     print('saving encoder...')
