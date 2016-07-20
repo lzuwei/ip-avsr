@@ -43,7 +43,7 @@ def create_model(incoming, options):
     pad_in = 'valid'
     pad_out = 'full'
     scaled_tanh = create_scaled_tanh()
-    dropout0 = DropoutLayer(incoming, name='dropout0')
+    dropout0 = DropoutLayer(incoming, p=0.2, name='dropout0')
     conv2d1 = Conv2DLayer(dropout0, num_filters=conv_num_filters1, filter_size=filter_size1, pad=pad_in, name='conv2d1', nonlinearity=scaled_tanh)
     bn1 = BatchNormLayer(conv2d1, name='batchnorm1')
     maxpool2d2 = MaxPool2DLayer(bn1, pool_size=pool_size, name='maxpool2d2')
@@ -53,10 +53,14 @@ def create_model(incoming, options):
     maxpool2d4 = MaxPool2DLayer(bn2, pool_size=pool_size, name='maxpool2d4', pad=(1,0))
     dropout2 = DropoutLayer(maxpool2d4, name='dropout2')
     conv2d5 = Conv2DLayer(dropout2, num_filters=conv_num_filters3, filter_size=filter_size3, pad=pad_in, name='conv2d5', nonlinearity=scaled_tanh)
-    reshape6 = ReshapeLayer(conv2d5, shape=([0], -1), name='reshape6')  # 3000
+    bn3 = BatchNormLayer(conv2d5, name='batchnorm3')
+    reshape6 = ReshapeLayer(bn3, shape=([0], -1), name='reshape6')  # 3000
     reshape6_output = reshape6.output_shape[1]
-    dense7 = DenseLayer(reshape6, num_units=dense_mid_size, name='dense7', nonlinearity=scaled_tanh)
-    bottleneck = DenseLayer(dense7, num_units=encode_size, name='bottleneck', nonlinearity=linear)
+    dropout3 = DropoutLayer(reshape6, name='dropout3')
+    dense7 = DenseLayer(dropout3, num_units=dense_mid_size, name='dense7', nonlinearity=scaled_tanh)
+    bn4 = BatchNormLayer(dense7, name='batchnorm4')
+    dropout4 = DropoutLayer(bn4, name='dropout4')
+    bottleneck = DenseLayer(dropout4, num_units=encode_size, name='bottleneck', nonlinearity=linear)
     # print_network(bottleneck)
     dense8 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense8', nonlinearity=linear)
     dense9 = DenseLayer(dense8, num_units=reshape6_output, W=dense7.W.T, nonlinearity=scaled_tanh, name='dense9')

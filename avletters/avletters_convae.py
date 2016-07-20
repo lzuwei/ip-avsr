@@ -274,7 +274,7 @@ def main():
 
         print("Epoch {} train cost = {}, validation cost = {} ({:.1f}sec) "
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
-        if epoch > 15:
+        if epoch > 18:
             lr.set_value(lr.get_value() * lr_decay)
 
     X_val_recon = recon_fn(X_val)
