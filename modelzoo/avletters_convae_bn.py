@@ -57,8 +57,8 @@ def create_model(incoming, options):
     bn8 = BatchNormLayer(reshape9, name='batchnorm8')
     dense10 = DenseLayer(bn8, num_units=dense_mid_size, name='dense10', nonlinearity=scaled_tanh)
     bn11 = BatchNormLayer(dense10, name='batchnorm11')
-    # bottleneck = DenseLayer(bn11, num_units=encode_size, name='bottleneck', nonlinearity=linear)
-    print_network(bottleneck)
+    bottleneck = DenseLayer(bn11, num_units=encode_size, name='bottleneck', nonlinearity=linear)
+    # print_network(bottleneck)
     dense12 = DenseLayer(bottleneck, num_units=dense_mid_size, W=bottleneck.W.T, name='dense12', nonlinearity=linear)
     dense13 = DenseLayer(dense12, num_units=reshape9_output, W=dense10.W.T, nonlinearity=scaled_tanh, name='dense13')
     reshape14 = ReshapeLayer(dense13, shape=([0], conv_num_filters3, 3, 5), name='reshape14')  # 32 x 4 x 7
