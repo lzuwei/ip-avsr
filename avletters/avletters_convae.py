@@ -181,10 +181,12 @@ def parse_options():
     options['VAL_NO_STRIDES'] = 3
     options['DENSE'] = 500
     options['BOTTLENECK'] = 50
+    options['MODEL'] = 'normal'
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', help='number of epochs to run')
     parser.add_argument('--bottleneck', help='bottleneck size')
     parser.add_argument('--dense', help='dense layer size')
+    parser.add_argument('--model', help='model to run [normal, batchnorm, dropout, bn+dropout]')
     args = parser.parse_args()
     if args.epochs:
         options['NUM_EPOCHS'] = int(args.epochs)
@@ -239,9 +241,16 @@ def main():
     l_input = InputLayer((None, None, 1200), input_var, name='input')
     l_input = ReshapeLayer(l_input, (-1, 1, 30, 40), name='reshape_input')
     # l_input = InputLayer((None, 1, 30, 40), input_var, name='input')
-    network, encoder = avletters_convae.create_model(l_input, options)
+    if options['MODEL'] == 'normal':
+        network, encoder = avletters_convae.create_model(l_input, options)
+    if options['MODEL'] == 'batchnorm':
+        network, encoder = avletters_convae_bn.create_model(l_input, options)
+    if options['MODEL'] == 'dropout':
+        network, encoder = avletters_convae_drop.create_model(l_input, options)
+    if options['MODEL'] == 'bn+dropout':
+        network, encoder = avletters_convae_bndrop.create_model(l_input, options)
 
-    print('AE Network architecture:')
+    print('AE Network architecture: {}'.format(options['MODEL']))
     print_network(network)
 
     recon = las.layers.get_output(network, deterministic=False)
