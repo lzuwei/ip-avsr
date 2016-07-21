@@ -8,6 +8,7 @@
 # data and model files
 */data
 */models
+*/results
 config/
 
 examples/

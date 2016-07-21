@@ -544,7 +544,7 @@ def main():
     updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
     # updates = las.updates.adam(cost, all_params, learning_rate=lr)
 
-    use_max_constraint = False
+    use_max_constraint = True
     if use_max_constraint:
         MAX_NORM = 4
         for param in las.layers.get_all_params(network, regularizable=True):

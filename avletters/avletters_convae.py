@@ -17,8 +17,8 @@ import matplotlib.pyplot as plt
 # Lasagne Imports
 from lasagne.layers import get_output, InputLayer, DenseLayer, Upscale2DLayer, ReshapeLayer, BatchNormLayer, batch_norm
 from lasagne.nonlinearities import rectify, leaky_rectify, tanh, linear, sigmoid, ScaledTanh
-from lasagne.updates import nesterov_momentum
-from lasagne.objectives import categorical_crossentropy
+from lasagne.updates import norm_constraint, adadelta
+from lasagne.objectives import squared_error
 from nolearn.lasagne import visualize
 
 # GPU detection
@@ -36,8 +36,13 @@ except ImportError:
 from utils.plotting_utils import print_network, visualize_reconstruction, visualize_layer, plot_validation_cost
 from utils.datagen import batch_iterator, sequence_batch_iterator
 from utils.preprocessing import *
-from modelzoo import avletters_convae, avletters_convae_bndrop, avletters_convae_bn
+from modelzoo import avletters_convae, avletters_convae_bndrop, avletters_convae_bn, avletters_convae_drop
 from utils.io import *
+
+import signal
+import sys
+
+terminate = False
 
 
 def configure_theano():
@@ -174,7 +179,7 @@ def parse_options():
     options['EPOCH_SIZE'] = 96
     options['NO_STRIDES'] = 3
     options['VAL_NO_STRIDES'] = 3
-    options['DENSE'] = 300
+    options['DENSE'] = 500
     options['BOTTLENECK'] = 50
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', help='number of epochs to run')
@@ -191,6 +196,13 @@ def parse_options():
 
 
 def main():
+
+    def signal_handler(signal, frame):
+        global terminate
+        terminate = True
+        print('terminating...'.format(terminate))
+
+    signal.signal(signal.SIGINT, signal_handler)
     configure_theano()
     options = parse_options()
     X, X_val = generate_data()
@@ -227,16 +239,25 @@ def main():
     l_input = InputLayer((None, None, 1200), input_var, name='input')
     l_input = ReshapeLayer(l_input, (-1, 1, 30, 40), name='reshape_input')
     # l_input = InputLayer((None, 1, 30, 40), input_var, name='input')
-    network, encoder = avletters_convae_bn.create_model(l_input, options)
+    network, encoder = avletters_convae.create_model(l_input, options)
 
     print('AE Network architecture:')
     print_network(network)
 
     recon = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
-    cost = T.mean(las.objectives.squared_error(recon, target_var))
-    updates = las.updates.adadelta(cost, all_params, lr)
-    # updates = las.updates.apply_nesterov_momentum(updates, all_params, momentum=0.8)
+    cost = T.mean(squared_error(recon, target_var))
+    updates = adadelta(cost, all_params, lr)
+    # updates = las.updates.apply_nesterov_momentum(updates, all_params, momentum=0.90)
+
+    use_max_constraint = False
+    print('apply max norm constraint: {}'.format(use_max_constraint))
+    if use_max_constraint:
+        MAX_NORM = 4
+        for param in las.layers.get_all_params(network, regularizable=True):
+            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
+                # updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
+                updates[param] = norm_constraint(param, MAX_NORM)
 
     train = theano.function([input_var, target_var], recon, updates=updates, allow_input_downcast=True)
     train_cost_fn = theano.function([input_var, target_var], cost, allow_input_downcast=True)
@@ -266,6 +287,10 @@ def main():
             batch_X = batch_X.reshape((-1, 1, 1200))
             train(batch_X, batch_y)
             print('\r', end='')
+            if terminate:
+                break
+        if terminate:
+            break
 
         cost = batch_compute_cost(X, X_out, NO_STRIDES, train_cost_fn)
         val_cost = batch_compute_cost(X_val, X_val_out, VAL_NO_STRIDES, eval_cost_fn)
@@ -282,8 +307,8 @@ def main():
     visualize_reconstruction(X_val_out[450:550], X_val_recon[450:550], shape=(30, 40), savefilename='avletters')
     plot_validation_cost(costs, val_costs, None, savefilename='valid_cost')
 
-    conv2d1 = las.layers.get_all_layers(network)[3]
-    visualize.plot_conv_weights(conv2d1, (10, 10)).savefig('conv2d1.png')
+    conv2d1 = las.layers.get_all_layers(network)[2]
+    visualize.plot_conv_weights(conv2d1, (15, 14)).savefig('conv2d1.png')
 
     print('saving encoder...')
     save_model(encoder, 'models/conv_encoder.dat')
