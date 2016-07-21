@@ -9,9 +9,9 @@ from custom_layers.custom import DeltaLayer
 
 
 def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 1000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
+    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
     l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 1000, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
+    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
     l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
     return l_4
 
@@ -45,19 +45,20 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
 
 
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                 dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)')):
+                 dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
+                 output_classes=26):
 
     dbn_layers = dbn.get_all_layers()
     weights = []
     biases = []
-    weights.append(dbn_layers[1].W)
-    weights.append(dbn_layers[2].W)
-    weights.append(dbn_layers[3].W)
-    weights.append(dbn_layers[4].W)
-    biases.append(dbn_layers[1].b)
-    biases.append(dbn_layers[2].b)
-    biases.append(dbn_layers[3].b)
-    biases.append(dbn_layers[4].b)
+    weights.append(dbn_layers[1].W.astype('float32'))
+    weights.append(dbn_layers[2].W.astype('float32'))
+    weights.append(dbn_layers[3].W.astype('float32'))
+    weights.append(dbn_layers[4].W.astype('float32'))
+    biases.append(dbn_layers[1].b.astype('float32'))
+    biases.append(dbn_layers[2].b.astype('float32'))
+    biases.append(dbn_layers[3].b.astype('float32'))
+    biases.append(dbn_layers[4].b.astype('float32'))
 
     gate_parameters = Gate(
         W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
@@ -106,6 +107,6 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     # We want the network to predict a classification for the sequence,
     # so we'll use a the number of classes.
     l_out = DenseLayer(
-        l_forward_slice1, num_units=26, nonlinearity=las.nonlinearities.softmax, name='output')
+        l_forward_slice1, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='output')
 
     return l_out

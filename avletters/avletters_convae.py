@@ -236,7 +236,7 @@ def main():
     input_var = T.tensor3('input', dtype='float32')
     target_var = T.matrix('output', dtype='float32')
     lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.5, dtype=theano.config.floatX)
+    lr_decay = np.array(0.9, dtype=theano.config.floatX)
 
     # try building a reshaping layer
     # network = create_model(input_var, (None, 1, 30, 40), options)
@@ -295,7 +295,8 @@ def main():
         time_start = time.time()
         for i in range(EPOCH_SIZE):
             batch_X, batch_y = next(datagen)
-            print_str = 'Epoch {} batch {}/{}: {} examples'.format(epoch + 1, i + 1, EPOCH_SIZE, len(batch_X))
+            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
+                epoch + 1, i + 1, EPOCH_SIZE, len(batch_X), lr.get_value())
             print(print_str, end='')
             sys.stdout.flush()
             batch_X = batch_X.reshape((-1, 1, 1200))
@@ -313,9 +314,8 @@ def main():
 
         print("Epoch {} train cost = {}, validation cost = {} ({:.1f}sec) "
               .format(epoch + 1, cost, val_cost, time.time() - time_start))
-        if epoch >= 10 and epoch % 10 == 0:
+        if epoch > 10:
             lr.set_value(lr.get_value() * lr_decay)
-            print('Learning rate decay to: {}'.format(lr.get_value()))
 
     X_val_recon = recon_fn(X_val)
     visualize_reconstruction(X_val_out[450:550], X_val_recon[450:550], shape=(30, 40), savefilename='avletters')

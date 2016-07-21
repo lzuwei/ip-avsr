@@ -485,19 +485,19 @@ def main():
 
     save = False
     if save:
-        pickle.dump(dbn, open('models/1k_bot_dbn_finetune.dat', 'wb'))
+        pickle.dump(dbn, open('models/avletters_ae.dat', 'wb'))
 
     load = False
     if load:
         print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open('models/1k_bot_dbn_finetune.dat', 'rb'))
+        dbn = pickle.load(open('models/dbn_finetune.dat', 'rb'))
         dbn.initialize()
         # exit()
 
     load_convae = True
     if load_convae:
         print('loading pre-trained convolutional autoencoder...')
-        encoder = load_model('models/conv_encoder.dat')
+        encoder = load_model('models/conv_encoder_norm.dat')
         inputs = las.layers.get_all_layers(encoder)[0].input_var
     else:
         inputs = T.tensor3('inputs', dtype='float32')
@@ -506,7 +506,7 @@ def main():
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
     lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.5, dtype=theano.config.floatX)
+    lr_decay = np.array(0.8, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
     '''
@@ -544,7 +544,7 @@ def main():
     updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
     # updates = las.updates.adam(cost, all_params, learning_rate=lr)
 
-    use_max_constraint = True
+    use_max_constraint = False
     if use_max_constraint:
         MAX_NORM = 4
         for param in las.layers.get_all_params(network, regularizable=True):
@@ -609,7 +609,8 @@ def main():
             X, y, m, batch_idxs = next(datagen)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
-            print_str = 'Epoch {} batch {}/{}: {} examples'.format(epoch + 1, i + 1, EPOCH_SIZE, len(X))
+            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
+                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
             print(print_str, end='')
             sys.stdout.flush()
             train(X, y, m, d, WINDOW_SIZE)
@@ -639,11 +640,10 @@ def main():
 
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
+
         # learning rate decay
-        # every 4 epochs 1/2 the learning rate
-        if epoch > 6 and (epoch + 1) % 4 == 0:
+        if epoch > 8:
             lr.set_value(lr.get_value() * lr_decay)
-            print('Learning rate decay to: {}'.format(lr.get_value()))
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
                'h', 'i', 'j', 'k', 'l', 'm', 'n',

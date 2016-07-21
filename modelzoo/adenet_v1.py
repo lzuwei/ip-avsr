@@ -45,7 +45,8 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
 
 
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                 dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)')):
+                 dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
+                 output_classes=26):
 
     dbn_layers = dbn.get_all_layers()
     weights = []
@@ -105,6 +106,6 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     # We want the network to predict a classification for the sequence,
     # so we'll use a the number of classes.
     l_out = DenseLayer(
-        l_forward_slice1, num_units=26, nonlinearity=las.nonlinearities.softmax, name='output')
+        l_forward_slice1, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='output')
 
     return l_out
