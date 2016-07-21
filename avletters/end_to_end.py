@@ -641,7 +641,7 @@ def main():
             break
         # learning rate decay
         # every 4 epochs 1/2 the learning rate
-        if epoch > 7 and (epoch + 1) % 4 == 0:
+        if epoch > 6 and (epoch + 1) % 4 == 0:
             lr.set_value(lr.get_value() * lr_decay)
             print('Learning rate decay to: {}'.format(lr.get_value()))
 
