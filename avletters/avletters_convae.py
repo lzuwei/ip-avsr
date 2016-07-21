@@ -194,6 +194,8 @@ def parse_options():
         options['BOTTLENECK'] = int(args.bottleneck)
     if args.dense:
         options['DENSE'] = int(args.dense)
+    if args.model:
+        options['MODEL'] = args.model
     return options
 
 
@@ -275,6 +277,9 @@ def main():
     eval_cost = T.mean(las.objectives.squared_error(eval_recon, target_var))
     eval_cost_fn = theano.function([input_var, target_var], eval_cost, allow_input_downcast=True)
     recon_fn = theano.function([input_var], eval_recon, allow_input_downcast=True)
+
+    if terminate:
+        exit()
 
     NUM_EPOCHS = options['NUM_EPOCHS']
     EPOCH_SIZE = options['EPOCH_SIZE']
