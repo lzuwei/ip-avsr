@@ -160,6 +160,16 @@ def plot_validation_cost(train_error, val_error, class_rate=None, savefilename=N
     plt.show()
 
 
+def visualize_images(images, shape=(30, 40), savefilename=None):
+    w = int(math.sqrt(len(images)))
+    vis = tile_raster_images(images, shape, (w, w), tile_spacing=(1, 1))
+    plt.title('images')
+    plt.show()
+    if savefilename:
+        o = Image.fromarray(orig)
+        o.save('{}.png'.format(savefilename))
+
+
 def visualize_reconstruction(original, reconstructed, shape=(30, 40), savefilename=None):
     w = int(math.sqrt(len(original)))
     orig = tile_raster_images(original, shape, (w, w), tile_spacing=(1, 1))

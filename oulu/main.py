@@ -63,13 +63,12 @@ def load_dbn(path='models/oulu_ae.mat'):
 
     dbn = NeuralNet(
         layers=layers,
-        max_epochs=30,
+        max_epochs=10,
         objective_loss_function=squared_error,
-        update=nesterov_momentum,
+        update=adadelta,
         regression=True,
         verbose=1,
-        update_learning_rate=0.001,
-        update_momentum=0.05,
+        update_learning_rate=0.01,
         objective_l2=0.005,
     )
     return dbn
@@ -295,7 +294,7 @@ def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
 
 def main():
     configure_theano()
-    data = load_mat_file('data/allMouthROIsResized_frontal.mat')
+    data = load_mat_file('data/allMouthROIsMeanRemoved_frontal.mat')
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -304,7 +303,7 @@ def main():
     # '__globals__', 'iterVec', 'filenamesVec', 'dataMatrixCells', 'subjectsVec', 'targetW', '__version__']
 
     print(data.keys())
-    X = data['dataMatrix'].astype('float32')
+    X = data['dataMatrix'].astype('float32')  # .reshape((-1, 26, 44), order='f').reshape((-1, 26 * 44))
     y = data['targetsVec'].astype('int32')
     y = y.reshape((len(y),))
     uniques = np.unique(y)
@@ -326,24 +325,30 @@ def main():
     assert train_vidlens.shape[0] + test_vidlens.shape[0] == len(video_lens)
     assert train_subjects.shape[0] + test_subjects.shape[0] == len(subjects)
 
-    train_X = normalize_input(train_X, centralize=True)
-    test_X = normalize_input(test_X, centralize=True)
+    # train_X = normalize_input(train_X, centralize=True)
+    # test_X = normalize_input(test_X, centralize=True)
 
     finetune = False
     if finetune:
-        dbn = load_dbn()
+        dbn = load_dbn('models/oulu_ae_mean_removed.mat')
         dbn.initialize()
         dbn.fit(train_X, train_X)
+        recon = dbn.predict(test_X)
+        visualize_reconstruction(test_X[800:864], recon[800:864], shape=(26, 44))
 
     save = False
     if save:
-        pickle.dump(dbn, open('models/oulu_dbn_finetune.dat', 'wb'))
+        pickle.dump(dbn, open('models/oulu_ae_mean_removed_finetune.dat', 'wb'))
 
     load = True
     if load:
         print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open('models/oulu_dbn_finetune.dat', 'rb'))
+        dbn = pickle.load(open('models/oulu_ae_mean_removed_finetune.dat', 'rb'))
         dbn.initialize()
+
+    # recon = dbn.predict(test_X)
+    # visualize_reconstruction(test_X[550:650], recon[550:650], (26, 44))
+    # exit()
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -356,7 +361,7 @@ def main():
     inputs = T.tensor3('inputs', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
-    lr = theano.shared(np.array(1.0, dtype=theano.config.floatX), name='learning_rate')
+    lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(0.90, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
@@ -414,7 +419,7 @@ def main():
                                         batchsize=len(test_vidlens))
 
     # We'll use this "validation set" to periodically check progress
-    X_val, y_val, mask_val = next(val_datagen)
+    X_val, y_val, mask_val, _ = next(val_datagen)
 
     def early_stop(cost_window):
         if len(cost_window) < 2:
@@ -431,7 +436,7 @@ def main():
     for epoch in range(NUM_EPOCHS):
         time_start = time.time()
         for _ in range(EPOCH_SIZE):
-            X, y, m = next(datagen)
+            X, y, m, _ = next(datagen)
             train(X, y, m, WINDOW_SIZE)
         cost = compute_train_cost(X, y, m, WINDOW_SIZE)
         val_cost = compute_test_cost(X_val, y_val, mask_val, WINDOW_SIZE)

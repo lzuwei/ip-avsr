@@ -4,7 +4,7 @@ import lasagne as las
 from lasagne.layers import InputLayer, LSTMLayer, DenseLayer, ConcatLayer, SliceLayer, ReshapeLayer, ElemwiseSumLayer
 from lasagne.layers import Gate, DropoutLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
-from lasagne.layers import batch_norm
+from lasagne.layers import batch_norm, BatchNormLayer
 
 from custom_layers.custom import DeltaLayer
 
@@ -108,9 +108,8 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     # Merge layers take in lists of layers to merge as input.
     l_sum1 = ElemwiseSumLayer([l_lstm_bn, l_lstm_dct], name='sum1')
 
-    f_lstm_agg, b_lstm_agg = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
+    # f_lstm_agg, b_lstm_agg = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
 
-    '''
     l_lstm_agg = LSTMLayer(
         l_sum1, lstm_size,
         # We need to specify a separate input for masks
@@ -121,7 +120,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
         # We'll learn the initialization and use gradient clipping
         learn_init=True, grad_clipping=5., name='lstm_agg')
 
-
+    '''
     # implement drop-out regularization
     l_dropout = DropoutLayer(l_sum1, p=0.4, name='dropout1')
 
@@ -132,9 +131,9 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm2_back])
     '''
 
-    l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
+    # l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
 
-    l_forward_slice1 = SliceLayer(l_sum2, -1, 1, name='slice1')
+    l_forward_slice1 = SliceLayer(l_lstm_agg, -1, 1, name='slice1')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,

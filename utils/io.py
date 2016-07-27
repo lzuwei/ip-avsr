@@ -16,6 +16,11 @@ def load_mat_file(path):
     return sio.loadmat(path)
 
 
+def save_mat(dict, path):
+    print('save matlab file...')
+    sio.savemat(path, dict)
+
+
 def save_model(model, path):
     pickle.dump(model, open(path, 'wb'))
 

@@ -3,6 +3,7 @@
 import numpy as np
 import numpy.matlib as matlab
 import scipy.signal as signal
+import scipy.fftpack as fft
 from scipy.misc import imresize
 
 
@@ -150,10 +151,165 @@ def featurewise_normalize_sequence(input):
     return input, feature_means, feature_std
 
 
-def save_mat(train, test, path):
-    dic = {}
-    dic['trainDataResized'] = train
-    dic['testDataResized'] = test
+def sequencewise_mean_image_subtraction(input, seqlens, axis=0):
+    mean_subtracted = np.zeros(input.shape, input.dtype)
+    start = 0
+    end = 0
+    for len in seqlens:
+        end += len
+        seq = input[start:end, :]
+        mean_image = np.sum(seq, axis, input.dtype) / len
+        mean_subtracted[start:end, :] = seq - mean_image
+        start += len
+    return mean_subtracted
 
-    print('save matlab file...')
-    sio.savemat(path, dic)
+
+def zigzag(X):
+    """
+    traverses a 2D array in a zigzag fashion in the following sequence:
+
+    [[1, 2, 6, 7],
+     [3, 5, 8, 11],
+     [4, 9, 10, 12]]
+
+    :param X: 2D array
+    :return: 1D array containing elements of X arranged in the traversal sequence
+    """
+    rows, cols = X.shape
+    size = rows * cols
+    out = np.zeros((rows * cols, ), dtype=X.dtype)
+    cur_row = 0
+    cur_col = 0
+    direction = 0
+    DOWN = 1
+    UP = 0
+
+    for i in range(size):
+        out[i] = X[cur_row][cur_col]
+        if cur_row == 0:
+            if cur_col % 2:  # odd, move diagonal down
+                direction = DOWN
+                cur_row += 1
+                cur_col -= 1
+            else:
+                if cur_col == cols - 1:  # no more cols to move, go down
+                    direction = DOWN
+                    cur_row += 1
+                else:
+                    cur_col += 1  # even, move right
+        elif cur_col == 0:
+            if cur_row % 2:
+                if cur_row == rows - 1:  # no more rows to move down, move right
+                    direction = UP
+                    cur_col += 1
+                else:
+                    cur_row += 1
+            else:
+                direction = UP
+                cur_row -= 1
+                cur_col += 1
+        elif direction == UP:
+            if cur_col == cols - 1:  # no more cols to move up
+                direction = DOWN
+                cur_row += 1
+            else:
+                cur_row -= 1
+                cur_col += 1
+        else:
+            if cur_row == rows - 1:  # no more rows to move down
+                direction = UP
+                cur_col += 1
+            else:
+                cur_row += 1
+                cur_col -= 1
+    return out
+
+
+def test_zigzag():
+    X = np.array([[1, 2, 6, 7],
+                  [3, 5, 8, 11],
+                  [4, 9, 10, 12]])
+
+    Y = np.array([[1, 2, 5, 6, 9, 10],
+                  [3, 4, 7, 8, 11, 12]])
+
+    res = zigzag(X)
+    # check if results are sorted, compare each element with itself after
+    assert all(res[i] < res[i + 1] for i in range(len(res) - 1))
+    res = zigzag(Y)
+    assert all(res[i] < res[i + 1] for i in range(len(res) - 1))
+
+
+def compute_dct_features(X, image_shape, no_coeff=30, method='zigzag'):
+    """
+    compute 2D-dct features of a given image.
+    Type 2 DCT and finds the DCT coefficents with the largest mean normalized variance
+    :param X: 1 dimensional input image in 'c' format
+    :param image_shape: image shape
+    :param no_coeff: number of coefficients to extract
+    :param method: method to extract coefficents, zigzag, variance
+    :return: dct features
+    """
+    # strip highest freq as it is the mean intensity
+    X_dct = fft.dct(X.reshape((-1,) + image_shape).reshape((-1,) + (image_shape[0] * image_shape[1],)))
+
+    if method == 'zigzag':
+        out = np.zeros((len(X_dct), no_coeff), dtype=X_dct.dtype)
+        for i in xrange(len(X_dct)):
+            image = X_dct[i].reshape(image_shape)
+            out[i] = zigzag(image)[1:no_coeff + 1]
+        return out
+    elif method == 'variance':
+        X_dct = X_dct[:, 1:]
+        # mean coefficient per frequency
+        mean_dct = np.mean(X_dct, 0)
+        # mean normalize
+        mean_norm_dct = X_dct - mean_dct
+        # find standard deviation for each frequency component
+        std_dct = np.std(mean_norm_dct, 0)
+        # sort by largest variance
+        idxs = np.argsort(std_dct)[::-1][:no_coeff]
+        # return DCT coefficients with the largest variance
+        return mean_norm_dct[:, idxs]
+    else:
+        raise NotImplementedError("method not implemented, use only 'zigzag', 'variance'")
+
+
+def concat_first_second_deltas(X, vidlenvec):
+    """
+    Compute and concatenate 1st and 2nd order derivatives of input X given a sequence list
+    :param X: input feature vector X
+    :param vidlenvec: temporal sequence of X
+    :return: A matrix of shape(num rows of intput X, X + 1st order X + 2nd order X)
+    """
+    # construct a new feature matrix
+    feature_len = X.shape[1]
+    Y = np.zeros((X.shape[0], feature_len * 3))  # new feature vector with 1st, 2nd delta
+    start = 0
+    for vidlen in vidlenvec:
+        end = start + vidlen
+        seq = X[start: end]  # (vidlen, feature_len)
+        first_order = deltas(seq.T)
+        second_order = deltas(first_order)
+        assert first_order.shape == (feature_len, vidlen)
+        assert second_order.shape == (feature_len, vidlen)
+        assert len(seq) == vidlen
+        seq = np.concatenate((seq, first_order.T, second_order.T), axis=1)
+        for idx, j in enumerate(range(start, end)):
+            Y[j] = seq[idx]
+        start += vidlen
+    return Y
+
+
+def reorder_data(X, shape, orig_order='f', desired_order='c'):
+    """
+    reorder data arranged from 2D from one order format to another
+    :param X: 1D input aligned in orig_order
+    :param shape: 2D shape of input collapsed from
+    :param orig_order: original order of packing
+    :param desired_order: desired order of packing
+    :return: realigned 1D input
+    """
+    d1, d2 = shape
+    X = X.reshape((-1, d1, d2), order=orig_order).reshape((-1, d1 * d2), order=desired_order)
+    return X
