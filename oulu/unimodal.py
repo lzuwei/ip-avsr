@@ -1,3 +1,4 @@
+from __future__ import print_function
 import sys
 sys.path.insert(0, '../')
 import pickle
@@ -369,7 +370,12 @@ def main():
         time_start = time.time()
         for _ in range(EPOCH_SIZE):
             X, y, m, _ = next(datagen)
+            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
+                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
+            print(print_str, end='')
+            sys.stdout.flush()
             train(X, y, m, WINDOW_SIZE)
+            print('\r', end='')
         cost = compute_train_cost(X, y, m, WINDOW_SIZE)
         val_cost = compute_test_cost(X_val, y_val, mask_val, WINDOW_SIZE)
         cost_train.append(cost)
