@@ -7,6 +7,12 @@ import scipy.fftpack as fft
 from scipy.misc import imresize
 
 
+def test_delta():
+    a = np.array([[1,1,1,1,1,1,1,1,10], [2,2,2,2,2,2,2,2,20], [3,3,3,3,3,3,3,3,30], [4,4,4,4,4,4,4,4,40]])
+    aa = deltas(a, 9)
+    print(aa)
+
+
 def deltas(x, w=9):
     """
     Calculate the deltas (derivatives) of a sequence
@@ -313,3 +319,17 @@ def reorder_data(X, shape, orig_order='f', desired_order='c'):
     d1, d2 = shape
     X = X.reshape((-1, d1, d2), order=orig_order).reshape((-1, d1 * d2), order=desired_order)
     return X
+
+
+def compute_diff_images(X, vidlenvec):
+
+    diff_X = np.zeros(X.shape, dtype=X.dtype)
+    start = 0
+    for l in vidlenvec:
+        end = start + l
+        seq = X[start:end]
+        diff_seq = np.diff(seq, 1, 0)
+        diff_X[start] = diff_seq[0]  # copy the 1st diff image
+        diff_X[start+1:end] = diff_seq
+        start = end
+    return diff_X

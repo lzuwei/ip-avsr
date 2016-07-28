@@ -2,6 +2,7 @@ import sys
 sys.path.insert(0, '../')
 import pickle
 import time
+import ConfigParser
 
 from utils.preprocessing import *
 from utils.plotting_utils import *
@@ -185,88 +186,6 @@ def create_pretrained_encoder(weights, biases, incoming):
     return l_4
 
 
-def create_end_to_end_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                            lstm_size=250, win=T.iscalar('theta)')):
-
-    dbn_layers = dbn.get_all_layers()
-    weights = []
-    biases = []
-    weights.append(dbn_layers[1].W.astype('float32'))
-    weights.append(dbn_layers[2].W.astype('float32'))
-    weights.append(dbn_layers[3].W.astype('float32'))
-    weights.append(dbn_layers[4].W.astype('float32'))
-    biases.append(dbn_layers[1].b.astype('float32'))
-    biases.append(dbn_layers[2].b.astype('float32'))
-    biases.append(dbn_layers[3].b.astype('float32'))
-    biases.append(dbn_layers[4].b.astype('float32'))
-
-    l_in = InputLayer(input_shape, input_var, 'input')
-    l_mask = InputLayer(mask_shape, mask_var, 'mask')
-
-    symbolic_batchsize = l_in.input_var.shape[0]
-    symbolic_seqlen = l_in.input_var.shape[1]
-
-    print_layer_shape(l_in)
-    l_reshape1 = ReshapeLayer(l_in, (-1, input_shape[-1]), name='reshape1')
-    print_layer_shape(l_reshape1)
-    # l_encoder = create_fc_encoder(l_reshape1)
-    l_encoder = create_pretrained_encoder(weights, biases, l_reshape1)
-    print_layer_shape(l_encoder)
-    encoder_len = las.layers.get_output_shape(l_encoder)[-1]
-    l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
-    print_layer_shape(l_reshape2)
-    l_delta = DeltaLayer(l_reshape2, win, name='delta')
-    print_layer_shape(l_delta)
-
-    gate_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
-        b=las.init.Constant(0.))
-    cell_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
-        # Setting W_cell to None denotes that no cell connection will be used.
-        W_cell=None, b=las.init.Constant(0.),
-        # By convention, the cell nonlinearity is tanh in an LSTM.
-        nonlinearity=tanh)
-
-    N_HIDDEN = lstm_size
-    l_lstm = LSTMLayer(
-        l_delta, N_HIDDEN,
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='f_lstm1')
-    print_layer_shape(l_lstm)
-
-    # The "backwards" layer is the same as the first,
-    # except that the backwards argument is set to True.
-    l_lstm_back = LSTMLayer(
-        l_delta, N_HIDDEN, ingate=gate_parameters,
-        mask_input=l_mask, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        learn_init=True, grad_clipping=5., backwards=True, name='b_lstm1')
-    print_layer_shape(l_lstm_back)
-
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
-    print_layer_shape(l_sum1)
-
-    l_forward_slice1 = SliceLayer(l_sum1, -1, 1, name='slice1')
-    print_layer_shape(l_forward_slice1)
-
-    # Now, we can apply feed-forward layers as usual.
-    # We want the network to predict a classification for the sequence,
-    # so we'll use a the number of classes.
-    l_out = DenseLayer(
-        l_forward_slice1, num_units=10, nonlinearity=las.nonlinearities.softmax, name='output')
-    print_layer_shape(l_out)
-
-    return l_out
-
-
 def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
     """
     Evaluate a lstm model
@@ -294,7 +213,20 @@ def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
 
 def main():
     configure_theano()
-    data = load_mat_file('data/allMouthROIsMeanRemoved_frontal.mat')
+    config_file = 'config/unimodal.ini'
+    print('loading config file: {}'.format(config_file))
+    config = ConfigParser.ConfigParser()
+    config.read(config_file)
+
+    print('preprocessing dataset...')
+    data = load_mat_file(config.get('data', 'images'))
+    ae_pretrained = config.get('models', 'pretrained')
+    ae_finetuned = config.get('models', 'finetuned')
+    learning_rate = float(config.get('training', 'learning_rate'))
+    decay_rate = float(config.get('training', 'decay_rate'))
+    decay_start = int(config.get('training', 'decay_start'))
+    lstm_units = int(config.get('training', 'lstm_units'))
+    output_units = int(config.get('training', 'output_units'))
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -325,12 +257,12 @@ def main():
     assert train_vidlens.shape[0] + test_vidlens.shape[0] == len(video_lens)
     assert train_subjects.shape[0] + test_subjects.shape[0] == len(subjects)
 
-    # train_X = normalize_input(train_X, centralize=True)
-    # test_X = normalize_input(test_X, centralize=True)
+    train_X = normalize_input(train_X, centralize=True)
+    test_X = normalize_input(test_X, centralize=True)
 
     finetune = False
     if finetune:
-        dbn = load_dbn('models/oulu_ae_mean_removed.mat')
+        dbn = load_dbn(ae_pretrained)
         dbn.initialize()
         dbn.fit(train_X, train_X)
         recon = dbn.predict(test_X)
@@ -338,12 +270,12 @@ def main():
 
     save = False
     if save:
-        pickle.dump(dbn, open('models/oulu_ae_mean_removed_finetune.dat', 'wb'))
+        pickle.dump(dbn, open(ae_finetuned, 'wb'))
 
     load = True
     if load:
         print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open('models/oulu_ae_mean_removed_finetune.dat', 'rb'))
+        dbn = pickle.load(open(ae_finetuned, 'rb'))
         dbn.initialize()
 
     # recon = dbn.predict(test_X)
@@ -361,15 +293,15 @@ def main():
     inputs = T.tensor3('inputs', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
-    lr = theano.shared(np.array(0.8, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.90, dtype=theano.config.floatX)
+    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
+    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
     # network = create_end_to_end_model(dbn, (None, None, 1144), inputs,
     #                                  (None, None), mask, 250, window)
 
     network = deltanet.create_model(dbn, (None, None, 1144), inputs,
-                                    (None, None), mask, 250, window, 10)
+                                    (None, None), mask, lstm_units, window, output_units)
     print_network(network)
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
@@ -465,7 +397,7 @@ def main():
             break
 
         # learning rate decay
-        if epoch > 8:
+        if epoch > decay_start:
             lr.set_value(lr.get_value() * lr_decay)
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']

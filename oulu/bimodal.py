@@ -3,9 +3,10 @@ import sys
 sys.path.insert(0, '../')
 import pickle
 import time
+import ConfigParser
 
 import matplotlib
-# matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
 from utils.preprocessing import *
 from utils.plotting_utils import *
@@ -23,7 +24,7 @@ import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
 from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
-from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint
+from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad
 from lasagne.objectives import squared_error
 
 from modelzoo import adenet_v2, adenet_v1, adenet_v2_1
@@ -217,8 +218,19 @@ def evaluate_model(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
 
 def main():
     configure_theano()
-    data = load_mat_file('data/allMouthROIsResized_frontal.mat')
-    dct_data = load_mat_file('data/dctFeatMeanRemoved_OuluVs2.mat')
+    config_file = 'config/normal.ini'
+    print('loading config file: {}'.format(config_file))
+    config = ConfigParser.ConfigParser()
+    config.read(config_file)
+
+    print('preprocessing dataset...')
+    data = load_mat_file(config.get('data', 'images'))
+    dct_data = load_mat_file(config.get('data', 'dct'))
+    ae_pretrained = config.get('models', 'pretrained')
+    ae_finetuned = config.get('models', 'finetuned')
+    learning_rate = float(config.get('training', 'learning_rate'))
+    decay_rate = float(config.get('training', 'decay_rate'))
+    decay_start = int(config.get('training', 'decay_start'))
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -239,8 +251,12 @@ def main():
     video_lens = video_lens.reshape((len(video_lens,)))
 
     X = reorder_data(X, (26, 44), 'f', 'c')
+    print('performing sequencewise mean image removal...')
     X = sequencewise_mean_image_subtraction(X, video_lens)
     # visualize_images(X[550:650], (26, 44))
+
+    # mean remove dct features
+    # dct_feats = sequencewise_mean_image_subtraction(dct_feats, video_lens)
 
     train_subject_ids = read_data_split_file('data/train_val.txt')
     test_subject_ids = read_data_split_file('data/test.txt')
@@ -264,18 +280,20 @@ def main():
 
     finetune = False
     if finetune:
-        dbn = load_dbn()
+        print('performing finetuning on pretrained encoder: {}'.format(ae_pretrained))
+        dbn = load_dbn(ae_pretrained)
         dbn.initialize()
         dbn.fit(train_X, train_X)
 
     save = False
     if save:
-        pickle.dump(dbn, open('models/oulu_ae_mean_removed_finetune.dat', 'wb'))
+        print('saving finetuned encoder: {}...'.format(ae_finetuned))
+        pickle.dump(dbn, open(ae_finetuned, 'wb'))
 
     load = True
     if load:
-        print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open('models/oulu_ae_mean_removed_finetune.dat', 'rb'))
+        print('loading finetuned encoder: {}...'.format(ae_finetuned))
+        dbn = pickle.load(open(ae_finetuned, 'rb'))
         dbn.initialize()
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
@@ -290,8 +308,8 @@ def main():
     inputs = T.tensor3('inputs', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
-    lr = theano.shared(np.array(0.5, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.8, dtype=theano.config.floatX)
+    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
+    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
     '''
@@ -302,14 +320,15 @@ def main():
     network = adenet_v2.create_model(dbn, (None, None, 1144), inputs,
                                      (None, None), mask,
                                      (None, None, 90), dct,
-                                     250, window, 10)
+                                     300, window, 10)
 
     print_network(network)
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
+    updates = adadelta(cost, all_params, learning_rate=lr)
+    # updates = adagrad(cost, all_params, learning_rate=lr)
 
     use_max_constraint = False
     if use_max_constraint:
@@ -409,7 +428,7 @@ def main():
             break
 
         # learning rate decay
-        if epoch > 8:
+        if epoch > decay_start:
             lr.set_value(lr.get_value() * lr_decay)
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']
