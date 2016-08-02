@@ -257,7 +257,7 @@ def compute_dct_features(X, image_shape, no_coeff=30, method='zigzag'):
     :return: dct features
     """
     # strip highest freq as it is the mean intensity
-    X_dct = fft.dct(X.reshape((-1,) + image_shape).reshape((-1,) + (image_shape[0] * image_shape[1],)))
+    X_dct = fft.dct(X, norm='ortho')
 
     if method == 'zigzag':
         out = np.zeros((len(X_dct), no_coeff), dtype=X_dct.dtype)
@@ -265,7 +265,7 @@ def compute_dct_features(X, image_shape, no_coeff=30, method='zigzag'):
             image = X_dct[i].reshape(image_shape)
             out[i] = zigzag(image)[1:no_coeff + 1]
         return out
-    elif method == 'variance':
+    elif method == 'rel_variance':
         X_dct = X_dct[:, 1:]
         # mean coefficient per frequency
         mean_dct = np.mean(X_dct, 0)
@@ -276,7 +276,21 @@ def compute_dct_features(X, image_shape, no_coeff=30, method='zigzag'):
         # sort by largest variance
         idxs = np.argsort(std_dct)[::-1][:no_coeff]
         # return DCT coefficients with the largest variance
-        return mean_norm_dct[:, idxs]
+        return X_dct[:, idxs]
+    elif method == 'variance':
+        X_dct = X_dct[:, 1:]
+        # find standard deviation for each frequency component
+        std_dct = np.std(X_dct, 0)
+        # sort by largest variance
+        idxs = np.argsort(std_dct)[::-1][:no_coeff]
+        # return DCT coefficients with the largest variance
+        return X_dct[:, idxs]
+    elif method == 'energy':
+        X_dct = X_dct[:, 1:]
+        X_sum = np.abs(X_dct)
+        X_sum = np.sum(X_sum, 0)
+        idxs = np.argsort(X_sum)[::-1][:no_coeff]
+        return X_dct[:, idxs]
     else:
         raise NotImplementedError("method not implemented, use only 'zigzag', 'variance'")
 
@@ -333,3 +347,17 @@ def compute_diff_images(X, vidlenvec):
         diff_X[start+1:end] = diff_seq
         start = end
     return diff_X
+
+
+def zca_whiten(inputs):
+    sigma = np.dot(inputs, inputs.T) / inputs.shape[1]  # Correlation matrix
+    U, S, V = np.linalg.svd(sigma)  # Singular Value Decomposition
+    epsilon = 0.1  # Whitening constant, it prevents division by zero
+    ZCAMatrix = np.dot(np.dot(U, np.diag(1.0 / np.sqrt(np.diag(S) + epsilon))), U.T)  # ZCA Whitening matrix
+    return np.dot(ZCAMatrix, inputs)  # Data whitening
+
+
+def apply_zca_whitening(X):
+    for i, img in enumerate(X):
+        X[i] = zca_whiten(img.reshape((1, -1)))
+    return X

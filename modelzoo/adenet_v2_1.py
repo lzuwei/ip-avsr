@@ -83,10 +83,9 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     encoder_len = las.layers.get_output_shape(l_encoder)[-1]
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
-    l_delta_drop = DropoutLayer(l_delta, 0.2, name='delta_drop')
-    l_dct_dropout = DropoutLayer(l_dct, 0.2, name='dct_drop')
+
     l_lstm_bn = LSTMLayer(
-        l_delta_drop, lstm_size,
+        l_delta, lstm_size,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
@@ -96,7 +95,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
         learn_init=True, grad_clipping=5., name='lstm_bn')
 
     l_lstm_dct = LSTMLayer(
-        l_dct_dropout, lstm_size,
+        l_dct, lstm_size,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
@@ -107,12 +106,16 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
 
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
-    l_sum1 = ElemwiseSumLayer([l_lstm_bn, l_lstm_dct], name='sum1')
+    # l_sum1 = ElemwiseSumLayer([l_lstm_bn, l_lstm_dct], name='sum1')
+    l_concat = ConcatLayer([l_lstm_bn, l_lstm_dct], name='concat1')
+    l_reshape3 = ReshapeLayer(l_concat, (-1, lstm_size * 2), name='reshape3')
+    l_dense = DenseLayer(l_reshape3, lstm_size, name='reduce')
+    l_reshape4 = ReshapeLayer(l_dense, (symbolic_batchsize, symbolic_seqlen, lstm_size), name='reshape4')
 
     # f_lstm_agg, b_lstm_agg = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
 
     l_lstm_agg = LSTMLayer(
-        l_sum1, lstm_size,
+        l_reshape4, lstm_size,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate

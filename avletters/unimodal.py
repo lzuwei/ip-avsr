@@ -4,13 +4,13 @@ sys.path.insert(0, '../')
 import os
 import time
 import pickle
-import logging
+import ConfigParser
 
 import theano.tensor as T
 import theano
 
 import matplotlib
-# matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
 import lasagne as las
 from utils.preprocessing import *
@@ -183,43 +183,6 @@ def create_pretrained_encoder(weights, biases, incoming):
     l_3 = DenseLayer(l_2, 1000, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
     l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
     return l_4
-
-
-def create_fc_encoder(incoming):
-    l_1 = batch_norm(DenseLayer(incoming, 2000, nonlinearity=leaky_rectify, name='fc1'))
-    #l_drop1 = DropoutLayer(l_1, name='drop1')
-    l_2 = batch_norm(DenseLayer(l_1, 1000, nonlinearity=leaky_rectify, name='fc2'))
-    #l_drop2 = DropoutLayer(l_2, name='drop2')
-    l_3 = batch_norm(DenseLayer(l_2, 500, nonlinearity=leaky_rectify, name='fc3'))
-    #l_drop3 = DropoutLayer(l_3, name='drop3')
-    l_4 = batch_norm(DenseLayer(l_3, 50, nonlinearity=leaky_rectify, name='bottleneck'))
-    return l_4
-
-
-def concat_first_second_deltas(X, vidlenvec):
-    """
-    Compute and concatenate 1st and 2nd order derivatives of input X given a sequence list
-    :param X: input feature vector X
-    :param vidlenvec: temporal sequence of X
-    :return: A matrix of shape(num rows of intput X, X + 1st order X + 2nd order X)
-    """
-    # construct a new feature matrix
-    feature_len = X.shape[1]
-    Y = np.zeros((X.shape[0], feature_len * 3))  # new feature vector with 1st, 2nd delta
-    start = 0
-    for vidlen in vidlenvec:
-        end = start + vidlen
-        seq = X[start: end]  # (vidlen, feature_len)
-        first_order = deltas(seq.T)
-        second_order = deltas(first_order)
-        assert first_order.shape == (feature_len, vidlen)
-        assert second_order.shape == (feature_len, vidlen)
-        assert len(seq) == vidlen
-        seq = np.concatenate((seq, first_order.T, second_order.T), axis=1)
-        for idx, j in enumerate(range(start, end)):
-            Y[j] = seq[idx]
-        start += vidlen
-    return Y
 
 
 def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
@@ -429,8 +392,21 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
 
 def main():
     configure_theano()
+    config_file = 'config/normal.ini'
+    config = ConfigParser.ConfigParser()
+    config.read(config_file)
+    print('loading config file: {}'.format(config_file))
+
     print('preprocessing dataset...')
-    data = load_mat_file('data/resized_mean_removed.mat')
+    data = load_mat_file(config.get('data', 'images'))
+    ae_pretrained = config.get('models', 'pretrained')
+    ae_finetuned = config.get('models', 'finetuned')
+    learning_rate = float(config.get('training', 'learning_rate'))
+    decay_rate = float(config.get('training', 'decay_rate'))
+    decay_start = int(config.get('training', 'decay_start'))
+    do_finetune = config.getboolean('training', 'do_finetune')
+    save_finetune = config.getboolean('training', 'save_finetune')
+    load_finetune = config.getboolean('training', 'load_finetune')
 
     # create the necessary variable mappings
     data_matrix = data['dataMatrix'].astype('float32')
@@ -458,33 +434,28 @@ def main():
 
     # resize the input data to 40 x 30
     # train_data_resized = resize_images(train_data).astype(np.float32)
-    train_data_resized = train_data
 
     # normalize the inputs [0 - 1]
     # train_data_resized = normalize_input(train_data_resized, centralize=True)
 
     # test_data_resized = resize_images(test_data).astype(np.float32)
-    test_data_resized = test_data
     # test_data_resized = normalize_input(test_data_resized, centralize=True)
 
-    finetune = False
-    if finetune:
+    if do_finetune:
         print('fine-tuning...')
-        dbn = load_dbn('models/avletters_mean_removed_ae.mat')
+        dbn = load_dbn(ae_pretrained)
         dbn.initialize()
-        dbn.fit(train_data_resized, train_data_resized)
-        res = dbn.predict(test_data_resized)
+        dbn.fit(train_data, train_data)
+        res = dbn.predict(test_data)
         # print(res.shape)
-        visualize_reconstruction(test_data_resized[300:336], res[300:336])
+        visualize_reconstruction(test_data[300:336], res[300:336])
 
-    save = False
-    if save:
-        pickle.dump(dbn, open('models/avletters_mean_removed_ae_finetune.dat', 'wb'))
+    if save_finetune:
+        pickle.dump(dbn, open(ae_finetuned, 'wb'))
 
-    load = True
-    if load:
+    if load_finetune:
         print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open('models/avletters_ae_finetune.dat', 'rb'))
+        dbn = pickle.load(open(ae_finetuned, 'rb'))
         dbn.initialize()
         # exit()
 
@@ -498,8 +469,8 @@ def main():
     window = T.iscalar('theta')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
-    lr = theano.shared(np.array(1.0, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(0.8, dtype=theano.config.floatX)
+    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
+    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
     network = deltanet.create_model(dbn, (None, None, 1200), inputs,
@@ -551,8 +522,8 @@ def main():
     best_conf = None
     best_cr = 0.0
 
-    datagen = gen_lstm_batch_random(train_data_resized, train_targets, train_vidlen_vec, batchsize=BATCH_SIZE)
-    val_datagen = gen_lstm_batch_random(test_data_resized, test_targets, test_vidlen_vec,
+    datagen = gen_lstm_batch_random(train_data, train_targets, train_vidlen_vec, batchsize=BATCH_SIZE)
+    val_datagen = gen_lstm_batch_random(test_data, test_targets, test_vidlen_vec,
                                         batchsize=len(test_vidlen_vec))
 
     # We'll use this "validation set" to periodically check progress
@@ -607,7 +578,7 @@ def main():
             break
 
         # learning rate decay
-        if epoch > 20:  # 20, 8
+        if epoch > decay_start:  # 20, 8
             lr.set_value(lr.get_value() * lr_decay)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',

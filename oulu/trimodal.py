@@ -6,7 +6,7 @@ import time
 import ConfigParser
 
 import matplotlib
-# matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
 from utils.preprocessing import *
 from utils.plotting_utils import *
@@ -27,7 +27,7 @@ from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad
 from lasagne.objectives import squared_error
 
-from modelzoo import adenet_v2, adenet_v1, adenet_v2_1
+from modelzoo import adenet_v2, adenet_v1, adenet_v2_1, adenet_v5
 from utils.plotting_utils import print_network
 
 
@@ -112,12 +112,13 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def split_data(X, y, dct, subjects, video_lens, train_ids, test_ids):
+def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, test_ids):
     """
     Splits the data into training and testing sets
     :param X: input X
     :param y: target y
     :param dct: dct features
+    :param X_diff: difference images
     :param subjects: array of video -> subject mapping
     :param video_lens: array of video lengths for each video
     :param train_ids: list of subject ids used for training
@@ -126,6 +127,7 @@ def split_data(X, y, dct, subjects, video_lens, train_ids, test_ids):
     """
     # construct a subjects data matrix offset
     X_feature_dim = X.shape[1]
+    X_diff_feature_dim = X_diff.shape[1]
     dct_dim = dct.shape[1]
     train_X = np.empty((0, X_feature_dim), dtype='float32')
     test_X = np.empty((0, X_feature_dim), dtype='float32')
@@ -133,6 +135,8 @@ def split_data(X, y, dct, subjects, video_lens, train_ids, test_ids):
     test_y = np.empty((0,), dtype='int')
     train_dct = np.empty((0, dct_dim), dtype='float32')
     test_dct = np.empty((0, dct_dim), dtype='float32')
+    train_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
+    test_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
     train_vidlens = np.empty((0,), dtype='int')
     test_vidlens = np.empty((0,), dtype='int')
     train_subjects = np.empty((0,), dtype='int')
@@ -157,6 +161,7 @@ def split_data(X, y, dct, subjects, video_lens, train_ids, test_ids):
             if subject in train_ids:
                 train_X = np.concatenate((train_X, X[current_data_idx:end_data_idx]))
                 train_y = np.concatenate((train_y, y[current_data_idx:end_data_idx]))
+                train_X_diff = np.concatenate((train_X_diff, X_diff[current_data_idx:end_data_idx]))
                 train_dct = np.concatenate((train_dct, dct[current_data_idx:end_data_idx]))
                 train_vidlens = np.concatenate((train_vidlens, video_lens[current_video_idx:end_video_idx]))
                 train_subjects = np.concatenate((train_subjects, subjects[current_video_idx:end_video_idx]))
@@ -164,6 +169,7 @@ def split_data(X, y, dct, subjects, video_lens, train_ids, test_ids):
                 test_X = np.concatenate((test_X, X[current_data_idx:end_data_idx]))
                 test_y = np.concatenate((test_y, y[current_data_idx:end_data_idx]))
                 test_dct = np.concatenate((test_dct, dct[current_data_idx:end_data_idx]))
+                test_X_diff = np.concatenate((test_X_diff, X_diff[current_data_idx:end_data_idx]))
                 test_vidlens = np.concatenate((test_vidlens, video_lens[current_video_idx:end_video_idx]))
                 test_subjects = np.concatenate((test_subjects, subjects[current_video_idx:end_video_idx]))
             previous_subject = subject
@@ -171,8 +177,8 @@ def split_data(X, y, dct, subjects, video_lens, train_ids, test_ids):
             current_data_idx = end_data_idx
             subject_video_count = 1
             populate = False
-    return train_X, train_y, train_dct, train_vidlens, \
-           train_subjects, test_X, test_y, test_dct, test_vidlens, test_subjects
+    return train_X, train_y, train_dct, train_X_diff, train_vidlens,\
+           train_subjects, test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects
 
 
 def read_data_split_file(path, sep=','):
@@ -190,18 +196,19 @@ def create_pretrained_encoder(weights, biases, incoming):
     return l_4
 
 
-def evaluate_model(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
+def evaluate_model(X_val, y_val, mask_val, dct_val, X_diff_val, window_size, eval_fn):
     """
     Evaluate a lstm model
     :param X_val: validation inputs
     :param y_val: validation targets
     :param mask_val: input masks for variable sequences
     :param dct_val: validation dct features
+    :param X_diff_val: validation inputs diff image
     :param window_size: size of window for computing delta coefficients
     :param eval_fn: evaluation function
     :return: classification rate, confusion matrix
     """
-    output = eval_fn(X_val, mask_val, dct_val, window_size)
+    output = eval_fn(X_val, mask_val, dct_val, X_diff_val, window_size)
     no_gps = output.shape[1]
     confusion_matrix = np.zeros((no_gps, no_gps), dtype='int')
 
@@ -218,7 +225,7 @@ def evaluate_model(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
 
 def main():
     configure_theano()
-    config_file = 'config/mean_removed.ini'
+    config_file = 'config/trimodal.ini'
     print('loading config file: {}'.format(config_file))
     config = ConfigParser.ConfigParser()
     config.read(config_file)
@@ -228,9 +235,14 @@ def main():
     dct_data = load_mat_file(config.get('data', 'dct'))
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
+    ae_finetuned_diff = config.get('models', 'finetuned_diff')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
+    do_finetune = config.getboolean('training', 'do_finetune')
+    save_finetune = config.getboolean('training', 'save_finetune')
+    load_finetune = config.getboolean('training', 'load_finetune')
+    load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -253,18 +265,19 @@ def main():
     # X = reorder_data(X, (26, 44), 'f', 'c')
     # print('performing sequencewise mean image removal...')
     # X = sequencewise_mean_image_subtraction(X, video_lens)
-    visualize_images(X[550:650], (26, 44))
+    # visualize_images(X[550:650], (26, 44))
+    X_diff = compute_diff_images(X, video_lens)
 
     # mean remove dct features
-    # dct_feats = sequencewise_mean_image_subtraction(dct_feats, video_lens)
+    dct_feats = sequencewise_mean_image_subtraction(dct_feats, video_lens)
 
     train_subject_ids = read_data_split_file('data/train_val.txt')
     test_subject_ids = read_data_split_file('data/test.txt')
     print(train_subject_ids)
     print(test_subject_ids)
-    train_X, train_y, train_dct, train_vidlens, train_subjects, \
-    test_X, test_y, test_dct, test_vidlens, test_subjects = \
-        split_data(X, y, dct_feats, subjects, video_lens, train_subject_ids, test_subject_ids)
+    train_X, train_y, train_dct, train_X_diff, train_vidlens, train_subjects, \
+    test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects = \
+        split_data(X, y, dct_feats, X_diff, subjects, video_lens, train_subject_ids, test_subject_ids)
 
     assert train_X.shape[0] + test_X.shape[0] == len(X)
     assert train_y.shape[0] + test_y.shape[0] == len(y)
@@ -278,23 +291,25 @@ def main():
     train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
     test_dct = (test_dct - dct_mean) / dct_std
 
-    finetune = False
-    if finetune:
+    if do_finetune:
         print('performing finetuning on pretrained encoder: {}'.format(ae_pretrained))
-        dbn = load_dbn(ae_pretrained)
-        dbn.initialize()
-        dbn.fit(train_X, train_X)
+        ae = load_dbn(ae_pretrained)
+        ae.initialize()
+        ae.fit(train_X, train_X)
 
-    save = False
-    if save:
+    if save_finetune:
         print('saving finetuned encoder: {}...'.format(ae_finetuned))
-        pickle.dump(dbn, open(ae_finetuned, 'wb'))
+        pickle.dump(ae, open(ae_finetuned, 'wb'))
 
-    load = True
-    if load:
+    if load_finetune:
         print('loading finetuned encoder: {}...'.format(ae_finetuned))
-        dbn = pickle.load(open(ae_finetuned, 'rb'))
-        dbn.initialize()
+        ae = pickle.load(open(ae_finetuned, 'rb'))
+        ae.initialize()
+
+    if load_finetune_diff:
+        print('loading finetuned encoder: {}...'.format(ae_finetuned_diff))
+        ae_diff = pickle.load(open(ae_finetuned_diff, 'rb'))
+        ae_diff.initialize()
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -306,6 +321,7 @@ def main():
     window = T.iscalar('theta')
     dct = T.tensor3('dct', dtype='float32')
     inputs = T.tensor3('inputs', dtype='float32')
+    inputs_diff = T.tensor3('inputs_diff', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
     lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
@@ -317,10 +333,11 @@ def main():
                                       (None, None), mask, 250, window)
     '''
 
-    network = adenet_v2.create_model(dbn, (None, None, 1144), inputs,
+    network = adenet_v5.create_model(ae, ae_diff, (None, None, 1144), inputs,
                                      (None, None), mask,
                                      (None, None, 90), dct,
-                                     300, window, 10)
+                                     (None, None, 1144), inputs_diff,
+                                     250, window, 10)
 
     print_network(network)
     print('compiling model...')
@@ -338,16 +355,17 @@ def main():
                 updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
 
     train = theano.function(
-        [inputs, targets, mask, dct, window],
+        [inputs, targets, mask, dct, inputs_diff, window],
         cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs, targets, mask, dct, window], cost, allow_input_downcast=True)
+    compute_train_cost = theano.function([inputs, targets, mask, dct, inputs_diff, window],
+                                         cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
     compute_test_cost = theano.function(
-        [inputs, targets, mask, dct, window], test_cost, allow_input_downcast=True)
+        [inputs, targets, mask, dct, inputs_diff, window], test_cost, allow_input_downcast=True)
 
-    val_fn = theano.function([inputs, mask, dct, window], test_predictions, allow_input_downcast=True)
+    val_fn = theano.function([inputs, mask, dct, inputs_diff, window], test_predictions, allow_input_downcast=True)
 
     # We'll train the network with 10 epochs of 30 minibatches each
     print('begin training...')
@@ -376,6 +394,7 @@ def main():
     X_val, y_val, mask_val, idxs_val = next(val_datagen)
     integral_lens_val = compute_integral_len(test_vidlens)
     dct_val = gen_seq_batch_from_idx(test_dct, idxs_val, test_vidlens, integral_lens_val, np.max(test_vidlens))
+    X_diff_val = gen_seq_batch_from_idx(test_X_diff, idxs_val, test_vidlens, integral_lens_val, np.max(test_vidlens))
 
     def early_stop(cost_window):
         if len(cost_window) < 2:
@@ -395,14 +414,16 @@ def main():
             X, y, m, batch_idxs = next(datagen)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlens, integral_lens, np.max(train_vidlens))
+            X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
+                                            train_vidlens, integral_lens, np.max(train_vidlens))
             print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
                 epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
             print(print_str, end='')
             sys.stdout.flush()
-            train(X, y, m, d, WINDOW_SIZE)
+            train(X, y, m, d, X_diff, WINDOW_SIZE)
             print('\r', end='')
-        cost = compute_train_cost(X, y, m, d, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, WINDOW_SIZE)
+        cost = compute_train_cost(X, y, m, d, X_diff, WINDOW_SIZE)
+        val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, X_diff_val, WINDOW_SIZE)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -412,7 +433,7 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model(X_val, y_val, mask_val, dct_val, X_diff_val, WINDOW_SIZE, val_fn)
         class_rate.append(cr)
 
         print("Epoch {} train cost = {}, validation cost = {}, "
@@ -428,7 +449,7 @@ def main():
             break
 
         # learning rate decay
-        if epoch > decay_start:
+        if epoch >= decay_start - 1:
             lr.set_value(lr.get_value() * lr_decay)
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']

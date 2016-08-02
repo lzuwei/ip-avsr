@@ -6,20 +6,20 @@ sys.path.append('../')
 import argparse
 from utils.io import load_mat_file, save_mat
 from utils.preprocessing import resize_images, normalize_input, sequencewise_mean_image_subtraction, reorder_data
-from utils.preprocessing import compute_dct_features, concat_first_second_deltas, compute_diff_images
+from utils.preprocessing import compute_dct_features, concat_first_second_deltas
+from utils.preprocessing import compute_diff_images, apply_zca_whitening
 from utils.plotting_utils import visualize_images
-from scipy.fftpack import dct
 
 
 def resize(data):
-    X = data['dataMatrix'].astype('float32')
+    X = data['dataMatrix']
     vidlens = data['videoLengthVec'].reshape((-1,))
     X = resize_images(X)
-    X = normalize_input(X)
-    visualize_images(X[800:864])
+    # X = normalize_input(X)
+    # visualize_images(X[800:864])
     data['dataMatrix'] = X
     save_mat(data, 'data/resized.mat')
-    dct_feats = compute_dct_features(X, (30, 40), 30, method='zigzag')
+    dct_feats = compute_dct_features(X, (30, 40), 30, method='energy')
     dct_feats = concat_first_second_deltas(dct_feats, vidlens)
     d = dict()
     d['dctFeatures'] = dct_feats
@@ -47,9 +47,13 @@ def diff_image(data):
     X = data['dataMatrix'].astype('float32')
     vidlens = data['videoLengthVec'].reshape((-1,))
     X = resize_images(X)
-    X = normalize_input(X)
+    X = apply_zca_whitening(X)
+    # X = normalize_input(X)
+    visualize_images(X[2000:2081])
     X = compute_diff_images(X, vidlens)
-    visualize_images(X[900:964])
+    X = apply_zca_whitening(X)
+    # X = normalize_input(X)
+    visualize_images(X[2000:2081])
     data['dataMatrix'] = X
     save_mat(data, 'data/resized_diff_image_AVLetters.mat')
 

@@ -90,9 +90,8 @@ def extract_encoder(dbn):
             (DenseLayer, {'name': 'l4', 'num_units': dbn_layers[4].num_units, 'nonlinearity': linear,
                           'W': dbn_layers[4].W, 'b': dbn_layers[4].b}),
         ],
-        update=nesterov_momentum,
-        update_learning_rate=0.001,
-        update_momentum=0.5,
+        update=adadelta,
+        update_learning_rate=0.01,
         objective_l2=0.005,
         verbose=1,
         regression=True
@@ -214,7 +213,7 @@ def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
 
 def main():
     configure_theano()
-    config_file = 'config/unimodal.ini'
+    config_file = 'config/diff_image.ini'
     print('loading config file: {}'.format(config_file))
     config = ConfigParser.ConfigParser()
     config.read(config_file)
@@ -228,6 +227,9 @@ def main():
     decay_start = int(config.get('training', 'decay_start'))
     lstm_units = int(config.get('training', 'lstm_units'))
     output_units = int(config.get('training', 'output_units'))
+    do_finetune = config.getboolean('training', 'do_finetune')
+    save_finetune = config.getboolean('training', 'save_finetune')
+    load_finetune = config.getboolean('training', 'load_finetune')
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -261,20 +263,17 @@ def main():
     train_X = normalize_input(train_X, centralize=True)
     test_X = normalize_input(test_X, centralize=True)
 
-    finetune = False
-    if finetune:
+    if do_finetune:
         dbn = load_dbn(ae_pretrained)
         dbn.initialize()
         dbn.fit(train_X, train_X)
         recon = dbn.predict(test_X)
         visualize_reconstruction(test_X[800:864], recon[800:864], shape=(26, 44))
 
-    save = False
-    if save:
+    if save_finetune:
         pickle.dump(dbn, open(ae_finetuned, 'wb'))
 
-    load = True
-    if load:
+    if load_finetune:
         print('loading pre-trained encoding layers...')
         dbn = pickle.load(open(ae_finetuned, 'rb'))
         dbn.initialize()
@@ -368,7 +367,7 @@ def main():
 
     for epoch in range(NUM_EPOCHS):
         time_start = time.time()
-        for _ in range(EPOCH_SIZE):
+        for i in range(EPOCH_SIZE):
             X, y, m, _ = next(datagen)
             print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
                 epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
