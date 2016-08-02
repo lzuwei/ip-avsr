@@ -148,13 +148,14 @@ def split_data(X, y, dct, subjects, video_lens, train_ids, test_ids):
         else:  # populate the previous subject
             populate = True
         if idx == len(subjects) - 1:  # check if it is the last entry, if so populate
+            previous_subject = subject
             populate = True
         if populate:
             # slice the data into the respective splits
             end_video_idx = current_video_idx + subject_video_count
             subject_data_len = int(np.sum(video_lens[current_video_idx:end_video_idx]))
             end_data_idx = current_data_idx + subject_data_len
-            if subject in train_ids:
+            if previous_subject in train_ids:
                 train_X = np.concatenate((train_X, X[current_data_idx:end_data_idx]))
                 train_y = np.concatenate((train_y, y[current_data_idx:end_data_idx]))
                 train_dct = np.concatenate((train_dct, dct[current_data_idx:end_data_idx]))
