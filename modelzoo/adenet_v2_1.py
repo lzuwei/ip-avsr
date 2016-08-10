@@ -6,14 +6,14 @@ from lasagne.layers import Gate, DropoutLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
 from lasagne.layers import batch_norm, BatchNormLayer
 
-from custom_layers.custom import DeltaLayer
+from custom_layers.custom import DeltaLayer, AdaptiveElemwiseSumLayer
 
 
-def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
+def create_pretrained_encoder(weights, biases, names, incoming):
+    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name=names[0])
+    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name=names[1])
+    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name=names[2])
+    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name=names[3])
     return l_4
 
 
@@ -45,21 +45,28 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
     return l_lstm, l_lstm_back
 
 
-def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                 dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26):
-
-    dbn_layers = dbn.get_all_layers()
+def extract_weights(ae):
     weights = []
     biases = []
-    weights.append(dbn_layers[1].W.astype('float32'))
-    weights.append(dbn_layers[2].W.astype('float32'))
-    weights.append(dbn_layers[3].W.astype('float32'))
-    weights.append(dbn_layers[4].W.astype('float32'))
-    biases.append(dbn_layers[1].b.astype('float32'))
-    biases.append(dbn_layers[2].b.astype('float32'))
-    biases.append(dbn_layers[3].b.astype('float32'))
-    biases.append(dbn_layers[4].b.astype('float32'))
+    ae_layers = ae.get_all_layers()
+    weights.append(ae_layers[1].W.astype('float32'))
+    weights.append(ae_layers[2].W.astype('float32'))
+    weights.append(ae_layers[3].W.astype('float32'))
+    weights.append(ae_layers[4].W.astype('float32'))
+    biases.append(ae_layers[1].b.astype('float32'))
+    biases.append(ae_layers[2].b.astype('float32'))
+    biases.append(ae_layers[3].b.astype('float32'))
+    biases.append(ae_layers[4].b.astype('float32'))
+
+    return weights, biases
+
+
+def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
+                 diff_shape, diff_var, lstm_size=250, win=T.iscalar('theta)'),
+                 output_classes=26, use_adascale=False):
+
+    bn_weights, bn_biases = extract_weights(ae)
+    diff_weights, diff_biases = extract_weights(diff_ae)
 
     gate_parameters = Gate(
         W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
@@ -71,51 +78,72 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
         # By convention, the cell nonlinearity is tanh in an LSTM.
         nonlinearity=tanh)
 
-    l_in = InputLayer(input_shape, input_var, 'input')
+    l_raw = InputLayer(input_shape, input_var, 'raw_im')
     l_mask = InputLayer(mask_shape, mask_var, 'mask')
-    l_dct = InputLayer(dct_shape, dct_var, 'dct')
+    l_diff = InputLayer(diff_shape, diff_var, 'diff_im')
 
-    symbolic_batchsize = l_in.input_var.shape[0]
-    symbolic_seqlen = l_in.input_var.shape[1]
+    symbolic_batchsize_raw = l_raw.input_var.shape[0]
+    symbolic_seqlen_raw = l_raw.input_var.shape[1]
+    symbolic_batchsize_diff = l_diff.input_var.shape[0]
+    symbolic_seqlen_diff = l_diff.input_var.shape[1]
 
-    l_reshape1 = ReshapeLayer(l_in, (-1, input_shape[-1]), name='reshape1')
-    l_encoder = create_pretrained_encoder(weights, biases, l_reshape1)
-    encoder_len = las.layers.get_output_shape(l_encoder)[-1]
-    l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
-    l_delta = DeltaLayer(l_reshape2, win, name='delta')
+    l_reshape1_raw = ReshapeLayer(l_raw, (-1, input_shape[-1]), name='reshape1_raw')
+    l_encoder_raw = create_pretrained_encoder(bn_weights, bn_biases, ['fc1_raw', 'fc2_raw', 'fc3_raw', 'bottleneck_raw'],
+                                              l_reshape1_raw)
+    raw_len = las.layers.get_output_shape(l_encoder_raw)[-1]
 
-    l_lstm_bn = LSTMLayer(
-        l_delta, lstm_size,
+    l_reshape2_raw = ReshapeLayer(l_encoder_raw,
+                                  (symbolic_batchsize_raw, symbolic_seqlen_raw, raw_len),
+                                  name='reshape2_raw')
+    l_delta_raw = DeltaLayer(l_reshape2_raw, win, name='delta_raw')
+
+    # diff images
+    l_reshape1_diff = ReshapeLayer(l_diff, (-1, diff_shape[-1]), name='reshape1_diff')
+    l_encoder_diff = create_pretrained_encoder(diff_weights, diff_biases,
+                                               ['fc1_diff', 'fc2_diff', 'fc3_diff', 'bottleneck_diff'],
+                                               l_reshape1_diff)
+    diff_len = las.layers.get_output_shape(l_encoder_diff)[-1]
+    l_reshape2_diff = ReshapeLayer(l_encoder_diff,
+                                   (symbolic_batchsize_diff, symbolic_seqlen_diff, diff_len),
+                                   name='reshape2_diff')
+    l_delta_diff = DeltaLayer(l_reshape2_diff, win, name='delta_diff')
+
+    l_lstm_raw = LSTMLayer(
+        l_delta_raw, int(lstm_size),
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
         ingate=gate_parameters, forgetgate=gate_parameters,
         cell=cell_parameters, outgate=gate_parameters,
         # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='lstm_bn')
+        learn_init=True, grad_clipping=5., name='lstm_raw')
 
-    l_lstm_dct = LSTMLayer(
-        l_dct, lstm_size,
+    l_lstm_diff = LSTMLayer(
+        l_delta_diff, lstm_size,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
         ingate=gate_parameters, forgetgate=gate_parameters,
         cell=cell_parameters, outgate=gate_parameters,
         # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='lstm_dct')
+        learn_init=True, grad_clipping=5., name='lstm_diff')
 
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
-    # l_sum1 = ElemwiseSumLayer([l_lstm_bn, l_lstm_dct], name='sum1')
-    l_concat = ConcatLayer([l_lstm_bn, l_lstm_dct], name='concat1')
-    l_reshape3 = ReshapeLayer(l_concat, (-1, lstm_size * 2), name='reshape3')
-    l_dense = DenseLayer(l_reshape3, lstm_size, name='reduce')
-    l_reshape4 = ReshapeLayer(l_dense, (symbolic_batchsize, symbolic_seqlen, lstm_size), name='reshape4')
+    if use_adascale:
+        l_sum1 = AdaptiveElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='adasum1')
+    else:
+        l_sum1 = ElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='sum1')
 
-    # f_lstm_agg, b_lstm_agg = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
+    # l_drop_agg = DropoutLayer(l_sum1, name='dropout_agg')
 
+    f_lstm_agg, b_lstm_agg = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
+    l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
+
+
+    '''
     l_lstm_agg = LSTMLayer(
-        l_reshape4, lstm_size,
+        l_drop_agg, lstm_size * 2,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
@@ -124,7 +152,6 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
         # We'll learn the initialization and use gradient clipping
         learn_init=True, grad_clipping=5., name='lstm_agg')
 
-    '''
     # implement drop-out regularization
     l_dropout = DropoutLayer(l_sum1, p=0.4, name='dropout1')
 
@@ -137,7 +164,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
 
     # l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
 
-    l_forward_slice1 = SliceLayer(l_lstm_agg, -1, 1, name='slice1')
+    l_forward_slice1 = SliceLayer(l_sum2, -1, 1, name='slice1')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,
@@ -145,4 +172,4 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_out = DenseLayer(
         l_forward_slice1, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='output')
 
-    return l_out
+    return l_out, l_sum1

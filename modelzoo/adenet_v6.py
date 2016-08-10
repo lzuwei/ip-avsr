@@ -62,7 +62,7 @@ def extract_weights(ae):
 
 
 def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
-                 dct_shape, dct_var, diff_shape, diff_var, lstm_size=250, win=T.iscalar('theta)'),
+                 diff_shape, diff_var, lstm_size=250, win=T.iscalar('theta)'),
                  output_classes=26, use_adascale=False):
 
     bn_weights, bn_biases = extract_weights(ae)
@@ -80,7 +80,6 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
 
     l_raw = InputLayer(input_shape, input_var, 'raw_im')
     l_mask = InputLayer(mask_shape, mask_var, 'mask')
-    l_dct = InputLayer(dct_shape, dct_var, 'dct')
     l_diff = InputLayer(diff_shape, diff_var, 'diff_im')
 
     symbolic_batchsize_raw = l_raw.input_var.shape[0]
@@ -120,17 +119,6 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
         # We'll learn the initialization and use gradient clipping
         learn_init=True, grad_clipping=5., name='lstm_raw')
 
-    l_dct_drop = DropoutLayer(l_dct, p=0.2, name='dropout_dct')
-    l_lstm_dct = LSTMLayer(
-        l_dct_drop, int(lstm_size / (1.0-0.5)),
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='lstm_dct')
-
     l_delta_diff_drop = DropoutLayer(l_delta_diff, name='dropout_diff')
     l_lstm_diff = LSTMLayer(
         l_delta_diff_drop, int(lstm_size/(1.0-0.5)),
@@ -145,14 +133,15 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
     if use_adascale:
-        l_sum1 = AdaptiveElemwiseSumLayer([l_lstm_raw, l_lstm_dct, l_lstm_diff], name='adasum1')
+        l_sum1 = AdaptiveElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='adasum1')
     else:
-        l_sum1 = ElemwiseSumLayer([l_lstm_raw, l_lstm_dct, l_lstm_diff], name='sum1')
+        l_sum1 = ElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='sum1')
 
     l_drop_agg = DropoutLayer(l_sum1, name='dropout_agg')
 
     f_lstm_agg, b_lstm_agg = create_blstm(l_drop_agg, l_mask, lstm_size * 2, cell_parameters, gate_parameters, 'lstm_agg')
     l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
+
 
     '''
     l_lstm_agg = LSTMLayer(
@@ -174,6 +163,8 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     # Merge layers take in lists of layers to merge as input.
     l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm2_back])
     '''
+
+    # l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
 
     l_forward_slice1 = SliceLayer(l_sum2, -1, 1, name='slice1')
 

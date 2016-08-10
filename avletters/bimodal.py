@@ -20,7 +20,7 @@ from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
 from custom_layers.custom import DeltaLayer
-from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, adenet_v4
+from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, adenet_v4, adenet_v2_1, adenet_v6
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
@@ -164,8 +164,14 @@ def evaluate_model(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
 
 def main():
     configure_theano()
+    config_file = 'config/normal.ini'
     config = ConfigParser.ConfigParser()
-    config.read('config/normal.ini')
+    config.read(config_file)
+
+    print('Reading Config File: {}...'.format(config_file))
+    print(config.items('data'))
+    print(config.items('models'))
+    print(config.items('training'))
 
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
@@ -258,23 +264,23 @@ def main():
                                     (None, None), mask,
                                     250, window)
 
-    network = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
-                                     (None, None), mask,
-                                     (None, None, 90), dct,
-                                     250, window)
-
-
+    '''
     network = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
                                      (None, None), mask,
                                      (None, None, 90), dct,
                                      250, window)
 
     '''
+    network = adenet_v2_1.create_model(dbn, (None, None, 1200), inputs,
+                                       (None, None), mask,
+                                       (None, None, 90), dct,
+                                       250, window)
+
     network, adascale = adenet_v4.create_model(dbn, (None, None, 1200), inputs,
                                                (None, None), mask,
                                                (None, None, 90), dct,
                                                250, window)
-
+    '''
     print_network(network)
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)

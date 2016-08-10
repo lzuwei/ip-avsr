@@ -7,6 +7,28 @@ import theano
 import utils.signal
 
 
+class ZNormalizeLayer(Layer):
+    """
+       Layer to z-normalize to input sequence,
+    """
+
+    def __init__(self, incoming, **kwargs):
+        super(ZNormalizeLayer, self).__init__(incoming, **kwargs)
+
+    def get_output_for(self, input, **kwargs):
+        # compute featurewise mean and std for the minibatch
+        orig_shape = input.shape
+        temp = T.reshape(input, (-1, orig_shape[-1]))
+        means = T.mean(input, 0, dtype=input.dtype)
+        stds = T.std(input, 0)
+        temp = (temp - means) / stds
+        input = T.reshape(temp, orig_shape)
+        return input
+
+    def get_output_shape_for(self, input_shape):
+        return input_shape
+
+
 class DeltaLayer(Layer):
     """
     Layer to add delta coefficients to input sequence,

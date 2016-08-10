@@ -231,6 +231,67 @@ def zigzag(X):
     return out
 
 
+def fill_zigzag(shape):
+    """
+        fills a 2D array in a zigzag fashion in the following sequence:
+
+        [[1, 2, 6, 7],
+         [3, 5, 8, 11],
+         [4, 9, 10, 12]]
+
+        :param shape: shape of 2D array to return
+        :return: 2D array containing elements of X arranged in the traversal sequence
+        """
+    rows, cols = shape
+    size = rows * cols
+    out = np.zeros((rows, cols,), dtype=int)
+    cur_row = 0
+    cur_col = 0
+    direction = 0
+    DOWN = 1
+    UP = 0
+
+    for i in range(size):
+        out[cur_row][cur_col] = i + 1
+        if cur_row == 0:
+            if cur_col % 2:  # odd, move diagonal down
+                direction = DOWN
+                cur_row += 1
+                cur_col -= 1
+            else:
+                if cur_col == cols - 1:  # no more cols to move, go down
+                    direction = DOWN
+                    cur_row += 1
+                else:
+                    cur_col += 1  # even, move right
+        elif cur_col == 0:
+            if cur_row % 2:
+                if cur_row == rows - 1:  # no more rows to move down, move right
+                    direction = UP
+                    cur_col += 1
+                else:
+                    cur_row += 1
+            else:
+                direction = UP
+                cur_row -= 1
+                cur_col += 1
+        elif direction == UP:
+            if cur_col == cols - 1:  # no more cols to move up
+                direction = DOWN
+                cur_row += 1
+            else:
+                cur_row -= 1
+                cur_col += 1
+        else:
+            if cur_row == rows - 1:  # no more rows to move down
+                direction = UP
+                cur_col += 1
+            else:
+                cur_row += 1
+                cur_col -= 1
+    return out
+
+
 def test_zigzag():
     X = np.array([[1, 2, 6, 7],
                   [3, 5, 8, 11],
@@ -256,7 +317,6 @@ def compute_dct_features(X, image_shape, no_coeff=30, method='zigzag'):
     :param method: method to extract coefficents, zigzag, variance
     :return: dct features
     """
-    # strip highest freq as it is the mean intensity
     X_dct = fft.dct(X, norm='ortho')
 
     if method == 'zigzag':
@@ -292,7 +352,7 @@ def compute_dct_features(X, image_shape, no_coeff=30, method='zigzag'):
         idxs = np.argsort(X_sum)[::-1][:no_coeff]
         return X_dct[:, idxs]
     else:
-        raise NotImplementedError("method not implemented, use only 'zigzag', 'variance'")
+        raise NotImplementedError("method not implemented, use only 'zigzag', 'variance', 'rel_variance")
 
 
 def concat_first_second_deltas(X, vidlenvec):

@@ -4,6 +4,9 @@ import os
 import time
 import pickle
 
+import matplotlib
+matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+
 import theano.tensor as T
 import theano
 
@@ -13,6 +16,7 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
+from utils.draw_net import draw_to_file
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
@@ -235,12 +239,12 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
     # By setting the first and second dimensions to None, we allow
     # arbitrary minibatch sizes with arbitrary sequence lengths.
     # The number of feature dimensions is 150, as described above.
-    l_in = InputLayer(shape=(None, None, input_size))
+    l_in = InputLayer(shape=(None, None, input_size), name='input')
     # This input will be used to provide the network with masks.
     # Masks are expected to be matrices of shape (n_batch, n_time_steps);
     # both of these dimensions are variable for us so we will use
     # an input shape of (None, None)
-    l_mask = InputLayer(shape=(None, None))
+    l_mask = InputLayer(shape=(None, None), name='mask')
 
     # Our LSTM will have 250 hidden/cell units
     N_HIDDEN = lstm_size
@@ -252,8 +256,9 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
         ingate=gate_parameters, forgetgate=gate_parameters,
         cell=cell_parameters, outgate=gate_parameters,
         # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5.)
+        learn_init=True, grad_clipping=5., name='lstm1')
 
+    '''
     # The "backwards" layer is the same as the first,
     # except that the backwards argument is set to True.
     l_lstm_back = LSTMLayer(
@@ -289,46 +294,20 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
     l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm_back2])
-
-    '''
-    l_dropout2 = DropoutLayer(l_sum2)
-
-    l_lstm3 = LSTMLayer(
-        l_dropout2, N_HIDDEN,
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5.)
-
-    # The "backwards" layer is the same as the first,
-    # except that the backwards argument is set to True.
-    l_lstm_back3 = LSTMLayer(
-        l_dropout2, N_HIDDEN, ingate=gate_parameters,
-        mask_input=l_mask, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        learn_init=True, grad_clipping=5., backwards=True)
-
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum3 = ElemwiseSumLayer([l_lstm3, l_lstm_back3])
     '''
     # The l_forward layer creates an output of dimension (batch_size, SEQ_LENGTH, N_HIDDEN)
     # Since we are only interested in the final prediction, we isolate that quantity and feed it to the next layer.
     # The output of the sliced layer will then be of size (batch_size, N_HIDDEN)
-    l_forward_slice = SliceLayer(l_sum2, -1, 1)
+    l_forward_slice = SliceLayer(l_lstm, -1, 1, name='slice')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,
     # so we'll use a the number of classes.
     l_out = DenseLayer(
-        l_forward_slice, num_units=output_size, nonlinearity=las.nonlinearities.softmax)
+        l_forward_slice, num_units=output_size, nonlinearity=las.nonlinearities.softmax, name='output')
 
-    # Now, the shape will be n_batch*n_timesteps, output_size. We can then reshape to
-    # n_batch, n_timesteps to get a single value for each timstep from each sequence
-    # l_out = las.layers.ReshapeLayer(l_dense, (n_batch, n_time_steps))
+    print_network(l_out)
+    # draw_to_file(las.layers.get_all_layers(l_out), 'network.png')
 
     # Symbolic variable for the target network output.
     # It will be of shape n_batch, because there's only 1 target value per sequence.
@@ -373,6 +352,9 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
     cost_train = []
     cost_val = []
     class_rate = []
+    best_val = float('inf')
+    best_conf = None
+    best_cr = 0.0
     NUM_EPOCHS = 30
     EPOCH_SIZE = 26
     STRIP_SIZE = 3
@@ -396,11 +378,11 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
     for epoch in range(NUM_EPOCHS):
         time_start = time.time()
         for _ in range(EPOCH_SIZE):
-            X, y, m = next(train_data_gen)
+            X, y, m, _ = next(train_data_gen)
             train(X, y, m)
         train_cost = compute_train_cost(X, y, m)
         val_cost = compute_val_cost(X_val, y_val, mask_val)
-        cr, _ = evaluate_model(X_val, y_val, mask_val, val_fn)
+        cr, conf = evaluate_model(X_val, y_val, mask_val, val_fn)
         cost_train.append(train_cost)
         cost_val.append(val_cost)
         class_rate.append(cr)
@@ -415,10 +397,13 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
               "generalization loss = {:.3f}, GQ = {:.3f}, classification rate = {:.3f} ({:.1f}sec)"
               .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
 
+        if val_cost < best_val:
+            best_val = val_cost
+            best_cr = cr
+            best_conf = conf
+
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
-
-    cr, conf = evaluate_model(X_val, y_val, mask_val, val_fn)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
                'h', 'i', 'j', 'k', 'l', 'm', 'n',
@@ -426,9 +411,10 @@ def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_
                'v', 'w', 'x', 'y', 'z']
 
     print('Final Model')
-    print('classification rate: {}'.format(cr))
+    print('classification rate: {}'.format(best_cr))
+    print('validation loss: {}'.format(best_val))
     print('confusion matrix: ')
-    plot_confusion_matrix(conf, letters, fmt='grid')
+    plot_confusion_matrix(best_conf, letters, fmt='grid')
     plot_validation_cost(cost_train, cost_val, class_rate)
 
 
@@ -481,11 +467,11 @@ def main():
 
     save = False
     if save:
-        pickle.dump(dbn, open('models/dbn_finetune.dat', 'wb'))
+        pickle.dump(dbn, open('models/avletters_ae_finetune.dat', 'wb'))
 
     load = True
     if load:
-        dbn = pickle.load(open('models/dbn_finetune.dat', 'rb'))
+        dbn = pickle.load(open('models/avletters_ae_finetune.dat', 'rb'))
         dbn.initialize()
 
     encoder = extract_encoder(dbn)
@@ -493,22 +479,23 @@ def main():
     print('encoded shape: {}'.format(X_encode.shape))
 
     # group the data into sequences to find deltas
-    X_encode = concat_first_second_deltas(X_encode, train_vidlen_vec)
-    assert X_encode.shape == (train_data_resized.shape[0], 150)
+    # X_encode = concat_first_second_deltas(X_encode, train_vidlen_vec)
+    # assert X_encode.shape == (train_data_resized.shape[0], 150)
 
     # training vectors, z-normalise with mean 0, std 1 sample sequence-wise
     X_encode, train_feature_mean, train_feature_std = featurewise_normalize_sequence(X_encode)
 
     # encode and normalize test data using training feature mean, std
     X_encode_test = encoder.predict(test_data_resized)
-    X_encode_test = concat_first_second_deltas(X_encode_test, test_vidlen_vec)
+    # X_encode_test = concat_first_second_deltas(X_encode_test, test_vidlen_vec)
     X_encode_test = (X_encode_test - train_feature_mean) / train_feature_std
-    assert X_encode_test.shape == (test_data_resized.shape[0], 150)
-    print('bottleneck features encoded, train lstm...')
+    # assert X_encode_test.shape == (test_data_resized.shape[0], 150)
+    input_size = X_encode_test.shape[1]
+    print('bottleneck features encoded with size: {}, train lstm...'.format(input_size))
 
     train_lstm_gen = gen_lstm_batch_random(X_encode, train_targets, train_vidlen_vec)
     val_lstm_gen = gen_lstm_batch_seq(X_encode_test, test_targets, test_vidlen_vec, batchsize=len(test_vidlen_vec))
-    construct_lstm(150, 250, 26, train_lstm_gen, val_lstm_gen)
+    construct_lstm(input_size, 250, 26, train_lstm_gen, val_lstm_gen)
 
     # X_pred = dbn.predict(test_data_resized)
     # visualize_reconstruction(test_data_resized[4625:4650, :], X_pred[4625:4650, :])

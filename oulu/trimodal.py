@@ -231,12 +231,18 @@ def main():
     config = ConfigParser.ConfigParser()
     config.read(config_file)
 
+    print('Reading Config File: {}...'.format(config_file))
+    print(config.items('data'))
+    print(config.items('models'))
+    print(config.items('training'))
+
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
     dct_data = load_mat_file(config.get('data', 'dct'))
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
+    use_adascale = config.getboolean('models', 'use_adascale')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
@@ -334,11 +340,11 @@ def main():
                                       (None, None), mask, 250, window)
     '''
 
-    network = adenet_v5.create_model(ae, ae_diff, (None, None, 1144), inputs,
-                                     (None, None), mask,
-                                     (None, None, 90), dct,
-                                     (None, None, 1144), inputs_diff,
-                                     250, window, 10)
+    network, adascale = adenet_v5.create_model(ae, ae_diff, (None, None, 1144), inputs,
+                                               (None, None), mask,
+                                               (None, None, 90), dct,
+                                               (None, None, 1144), inputs_diff,
+                                               250, window, 10, use_adascale)
 
     print_network(network)
     print('compiling model...')
@@ -445,6 +451,8 @@ def main():
             best_val = val_cost
             best_conf = val_conf
             best_cr = cr
+            if use_adascale:
+                adascale_param = las.layers.get_all_param_values(adascale, scaling_param=True)
 
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
@@ -457,6 +465,8 @@ def main():
 
     print('Final Model')
     print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
+    if use_adascale:
+        print("final scaling params: {}".format(adascale_param))
     print('confusion matrix: ')
     plot_confusion_matrix(best_conf, phrases, fmt='grid')
     plot_validation_cost(cost_train, cost_val, class_rate, savefilename='valid_cost')

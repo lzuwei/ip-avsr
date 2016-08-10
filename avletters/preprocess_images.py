@@ -15,12 +15,13 @@ def resize(data):
     X = data['dataMatrix']
     vidlens = data['videoLengthVec'].reshape((-1,))
     X = resize_images(X)
-    # X = normalize_input(X)
-    # visualize_images(X[800:864])
+    # X = apply_zca_whitening(X)
+    visualize_images(X[800:864])
+    dct_feats = compute_dct_features(X, (30, 40), 30, method='zigzag')
+    dct_feats = concat_first_second_deltas(dct_feats, vidlens)
+    X = normalize_input(X)
     data['dataMatrix'] = X
     save_mat(data, 'data/resized.mat')
-    dct_feats = compute_dct_features(X, (30, 40), 30, method='energy')
-    dct_feats = concat_first_second_deltas(dct_feats, vidlens)
     d = dict()
     d['dctFeatures'] = dct_feats
     save_mat(d, 'data/dctFeat_AVLetters.mat')
@@ -30,17 +31,20 @@ def remove_mean(data):
     X = data['dataMatrix'].astype('float32')
     vidlens = data['videoLengthVec'].reshape((-1,))
     X = resize_images(X)
-    # samplewise normalize
-    X = normalize_input(X, centralize=True)
     X = sequencewise_mean_image_subtraction(X, vidlens)
-    visualize_images(X[800:864])
-    data['dataMatrix'] = X
-    save_mat(data, 'data/resized_mean_removed.mat')
+    # X = apply_zca_whitening(X)
+    X_fortran = reorder_data(X, (30, 40), 'c', 'f')
     dct_feats = compute_dct_features(X, (30, 40), 30, method='zigzag')
     dct_feats = concat_first_second_deltas(dct_feats, vidlens)
     d = dict()
     d['dctFeatures'] = dct_feats
     save_mat(d, 'data/dctFeat_mean_removed_AVLetters.mat')
+    visualize_images(X[800:864])
+    # samplewise normalize
+    X = normalize_input(X, centralize=True)
+    data['dataMatrix'] = X
+    data['dataMatrixF'] = X_fortran
+    save_mat(data, 'data/resized_mean_removed.mat')
 
 
 def diff_image(data):
@@ -52,7 +56,7 @@ def diff_image(data):
     visualize_images(X[2000:2081])
     X = compute_diff_images(X, vidlens)
     X = apply_zca_whitening(X)
-    # X = normalize_input(X)
+    X = normalize_input(X)
     visualize_images(X[2000:2081])
     data['dataMatrix'] = X
     save_mat(data, 'data/resized_diff_image_AVLetters.mat')

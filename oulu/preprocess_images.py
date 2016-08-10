@@ -12,19 +12,27 @@ from utils.plotting_utils import visualize_images
 
 
 def remove_mean(data):
+    """
+    remove mean image from data, sequence-wise mean removal,
+    perform dct on images followed by normalization of input
+    :param data: image data
+    :return:
+    """
     X = data['dataMatrix'].astype('float32')
     vidlens = data['videoLengthVec'].reshape((-1,))
     # realign to 'C' Format
     X = reorder_data(X, (26, 44))
     X = sequencewise_mean_image_subtraction(X, vidlens)
-    # samplewise normalize
-    X = normalize_input(X, centralize=True)
+    X_fortran = reorder_data(X, (26, 44), 'c', 'f')
     visualize_images(X[700:764], shape=(26, 44))
-    data['dataMatrix'] = X
-    save_mat(data, 'data/allMouthROIsMeanRemoved_frontal.mat')
     dct_feats = compute_dct_features(X, (26, 44), 30, method='zigzag')
     dct_data = dict()
     dct_data['dctFeatures'] = concat_first_second_deltas(dct_feats, vidlens)
+    # samplewise normalize
+    X = normalize_input(X, centralize=True)
+    data['dataMatrix'] = X
+    data['dataMatrixF'] = X_fortran
+    save_mat(data, 'data/allMouthROIsMeanRemoved_frontal.mat')
     save_mat(dct_data, 'data/dctFeatMeanRemoved_OuluVs2.mat')
 
 

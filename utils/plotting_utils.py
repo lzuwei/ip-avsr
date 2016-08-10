@@ -166,7 +166,7 @@ def visualize_images(images, shape=(30, 40), savefilename=None):
     plt.title('images')
     plt.show()
     if savefilename:
-        o = Image.fromarray(orig)
+        o = Image.fromarray(vis)
         o.save('{}.png'.format(savefilename))
 
 

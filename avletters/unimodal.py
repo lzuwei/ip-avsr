@@ -457,6 +457,8 @@ def main():
         print('loading pre-trained encoding layers...')
         dbn = pickle.load(open(ae_finetuned, 'rb'))
         dbn.initialize()
+        # res = dbn.predict(test_data)
+        # visualize_reconstruction(test_data[300:336], res[300:336])
         # exit()
 
     load_convae = False
