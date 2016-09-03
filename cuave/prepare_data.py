@@ -133,6 +133,7 @@ def parse_options():
     parser.add_argument('--samplewise_norm', action='store_true', help='samplewise normalize')
     parser.add_argument('--no_reorder', action='store_true', help='disable data reordering from f to c')
     parser.add_argument('--output', help='write output to .mat file')
+    parser.add_argument('input', nargs='+', help='input cuave .mat file to preprocess')
     args = parser.parse_args()
     if args.remove_mean:
         options['remove_mean'] = args.remove_mean
@@ -144,12 +145,15 @@ def parse_options():
         options['no_reorder'] = args.no_reorder
     if args.output:
         options['output'] = args.output
+    if args.input:
+        options['input'] = args.input[0]
     return options
 
 
 def main():
     options = parse_options()
-    data = load_mat_file('data/allData_mouthROIs_basedOnMouthCenter_trValTestSets.mat')
+    # data = load_mat_file('data/allData_mouthROIs_basedOnMouthCenter_trValTestSets.mat')
+    data = load_mat_file(options['input'])
     X_train = data['trData'].astype('float32')
     X_val = data['valData'].astype('float32')
     X_test = data['testData'].astype('float32')

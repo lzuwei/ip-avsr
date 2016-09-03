@@ -1,7 +1,6 @@
 from __future__ import print_function
 import sys
 sys.path.insert(0, '../')
-import pickle
 import time
 import ConfigParser
 import argparse
@@ -14,19 +13,16 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
-from utils.draw_net import draw_to_file
 
 import theano.tensor as T
 import theano
-from custom_layers.custom import DeltaLayer
 from nolearn.lasagne import NeuralNet
 
 import lasagne as las
 import numpy as np
-from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer
-from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
-from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad
+from lasagne.layers import InputLayer, DenseLayer
+from lasagne.nonlinearities import linear, sigmoid
+from lasagne.updates import nesterov_momentum, adadelta, adagrad
 from lasagne.objectives import squared_error
 
 from modelzoo import adenet_v3
@@ -114,98 +110,6 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test_ids):
-    """
-    Splits the data into training and testing sets
-    :param X: input X
-    :param y: target y
-    :param dct: dct features
-    :param X_diff: difference images
-    :param subjects: array of video -> subject mapping
-    :param video_lens: array of video lengths for each video
-    :param train_ids: list of subject ids used for training
-    :param val_ids: list of subject ids used for validation
-    :param test_ids: list of subject ids used for testing
-    :return: split data
-    """
-    # construct a subjects data matrix offset
-    X_feature_dim = X.shape[1]
-    X_diff_feature_dim = X_diff.shape[1]
-    dct_dim = dct.shape[1]
-    train_X = np.empty((0, X_feature_dim), dtype='float32')
-    val_X = np.empty((0, X_feature_dim), dtype='float32')
-    test_X = np.empty((0, X_feature_dim), dtype='float32')
-    train_y = np.empty((0,), dtype='int')
-    val_y = np.empty((0,), dtype='int')
-    test_y = np.empty((0,), dtype='int')
-    train_dct = np.empty((0, dct_dim), dtype='float32')
-    val_dct = np.empty((0, dct_dim), dtype='float32')
-    test_dct = np.empty((0, dct_dim), dtype='float32')
-    train_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
-    val_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
-    test_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
-    train_vidlens = np.empty((0,), dtype='int')
-    val_vidlens = np.empty((0,), dtype='int')
-    test_vidlens = np.empty((0,), dtype='int')
-    train_subjects = np.empty((0,), dtype='int')
-    val_subjects = np.empty((0,), dtype='int')
-    test_subjects = np.empty((0,), dtype='int')
-    previous_subject = 1
-    subject_video_count = 0
-    current_video_idx = 0
-    current_data_idx = 0
-    populate = False
-    for idx, subject in enumerate(subjects):
-        if previous_subject == subject:  # accumulate
-            subject_video_count += 1
-        else:  # populate the previous subject
-            populate = True
-        if idx == len(subjects) - 1:  # check if it is the last entry, if so populate
-            populate = True
-            previous_subject = subject
-        if populate:
-            # slice the data into the respective splits
-            end_video_idx = current_video_idx + subject_video_count
-            subject_data_len = int(np.sum(video_lens[current_video_idx:end_video_idx]))
-            end_data_idx = current_data_idx + subject_data_len
-            if previous_subject in train_ids:
-                train_X = np.concatenate((train_X, X[current_data_idx:end_data_idx]))
-                train_y = np.concatenate((train_y, y[current_data_idx:end_data_idx]))
-                train_X_diff = np.concatenate((train_X_diff, X_diff[current_data_idx:end_data_idx]))
-                train_dct = np.concatenate((train_dct, dct[current_data_idx:end_data_idx]))
-                train_vidlens = np.concatenate((train_vidlens, video_lens[current_video_idx:end_video_idx]))
-                train_subjects = np.concatenate((train_subjects, subjects[current_video_idx:end_video_idx]))
-            elif previous_subject in val_ids:
-                val_X = np.concatenate((val_X, X[current_data_idx:end_data_idx]))
-                val_y = np.concatenate((val_y, y[current_data_idx:end_data_idx]))
-                val_X_diff = np.concatenate((val_X_diff, X_diff[current_data_idx:end_data_idx]))
-                val_dct = np.concatenate((val_dct, dct[current_data_idx:end_data_idx]))
-                val_vidlens = np.concatenate((val_vidlens, video_lens[current_video_idx:end_video_idx]))
-                val_subjects = np.concatenate((val_subjects, subjects[current_video_idx:end_video_idx]))
-            else:
-                test_X = np.concatenate((test_X, X[current_data_idx:end_data_idx]))
-                test_y = np.concatenate((test_y, y[current_data_idx:end_data_idx]))
-                test_dct = np.concatenate((test_dct, dct[current_data_idx:end_data_idx]))
-                test_X_diff = np.concatenate((test_X_diff, X_diff[current_data_idx:end_data_idx]))
-                test_vidlens = np.concatenate((test_vidlens, video_lens[current_video_idx:end_video_idx]))
-                test_subjects = np.concatenate((test_subjects, subjects[current_video_idx:end_video_idx]))
-            previous_subject = subject
-            current_video_idx = end_video_idx
-            current_data_idx = end_data_idx
-            subject_video_count = 1
-            populate = False
-    return train_X, train_y, train_dct, train_X_diff, train_vidlens, train_subjects,\
-           val_X, val_y, val_dct, val_X_diff, val_vidlens, val_subjects,\
-           test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects
-
-
-def read_data_split_file(path, sep=','):
-    with open(path) as f:
-        subjects = f.readline().split(sep)
-        subjects = [int(s) for s in subjects]
-    return subjects
-
-
 def create_pretrained_encoder(weights, biases, incoming):
     l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
     l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
@@ -273,15 +177,12 @@ def main():
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
     dct_data = load_mat_file(config.get('data', 'dct'))
-    ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
     fusiontype = config.get('models', 'fusiontype')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
-    do_finetune = config.getboolean('training', 'do_finetune')
-    save_finetune = config.getboolean('training', 'save_finetune')
     load_finetune = config.getboolean('training', 'load_finetune')
     load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
 
@@ -347,13 +248,6 @@ def main():
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
     updates = adadelta(cost, all_params, learning_rate=lr)
     # updates = adagrad(cost, all_params, learning_rate=lr)
-
-    use_max_constraint = False
-    if use_max_constraint:
-        MAX_NORM = 4
-        for param in las.layers.get_all_params(network, regularizable=True):
-            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
-                updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
 
     train = theano.function(
         [inputs, targets, mask, dct, inputs_diff, window],
