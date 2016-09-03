@@ -6,6 +6,7 @@ import time
 import cPickle as pickle
 import logging
 import ConfigParser
+import argparse
 
 import theano.tensor as T
 import theano
@@ -19,6 +20,7 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
+from utils.draw_net import *
 from custom_layers.custom import DeltaLayer
 from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, adenet_v4, adenet_v5, adenet_v6
 
@@ -163,11 +165,29 @@ def evaluate_model(X_val, y_val, mask_val, dct_val, diff_val, window_size, eval_
     return classification_rate, confusion_matrix
 
 
+def parse_options():
+    options = dict()
+    options['config'] = 'config/trimodal.ini'
+    options['write_results'] = ''
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', help='config file to use, default=config/trimodal.ini')
+    parser.add_argument('--write_results', help='write results to file')
+    args = parser.parse_args()
+    if args.config:
+        options['config'] = args.config
+    if args.write_results:
+        options['write_results'] = args.write_results
+    return options
+
+
 def main():
     configure_theano()
-    config_file = 'config/trimodal.ini'
+    options = parse_options()
+    config_file = options['config']
     config = ConfigParser.ConfigParser()
     config.read(config_file)
+
+    print('CLI options: {}'.format(options.items()))
 
     print('Reading Config File: {}...'.format(config_file))
     print(config.items('data'))
@@ -181,7 +201,7 @@ def main():
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
-    use_adascale = config.getboolean('models', 'use_adascale')
+    fusiontype = config.get('models', 'fusiontype')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
@@ -292,14 +312,15 @@ def main():
                                      250, window)
     '''
 
-    network, adascale = adenet_v5.create_model(ae, diff_ae, (None, None, 1200), inputs_raw,
-                                               (None, None), mask,
-                                               (None, None, 90), dct,
-                                               (None, None, 1200), inputs_diff,
-                                               250, window, 26,
-                                               use_adascale)
+    network, l_fuse = adenet_v3.create_model(ae, diff_ae, (None, None, 1200), inputs_raw,
+                                             (None, None), mask,
+                                             (None, None, 90), dct,
+                                             (None, None, 1200), inputs_diff,
+                                             250, window, 26,
+                                             fusiontype)
 
     print_network(network)
+    draw_to_file(las.layers.get_all_layers(network), 'adenet_v3.png')
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
@@ -405,8 +426,8 @@ def main():
             best_val = val_cost
             best_conf = val_conf
             best_cr = cr
-            if use_adascale:
-                adascale_param = las.layers.get_all_param_values(adascale, scaling_param=True)
+            if fusiontype == 'adasum':
+                adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
 
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
@@ -422,11 +443,16 @@ def main():
 
     print('Best Model')
     print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
-    if use_adascale:
+    if fusiontype == 'adasum':
         print("final scaling params: {}".format(adascale_param))
     print('confusion matrix: ')
-    plot_confusion_matrix(best_conf, letters, fmt='grid')
+    plot_confusion_matrix(best_conf, letters, fmt='latex')
     plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost')
+
+    if options['write_results']:
+        results_file = options['write_results']
+        with open(results_file, mode='a') as f:
+            f.write('{},{},{}\n'.format(fusiontype, best_cr, best_val))
 
 if __name__ == '__main__':
     main()

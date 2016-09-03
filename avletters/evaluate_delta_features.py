@@ -5,6 +5,9 @@ import pickle
 import theano
 import theano.tensor as T
 
+import matplotlib
+matplotlib.use('Agg')
+
 import lasagne as las
 from utils.preprocessing import *
 from utils.plotting_utils import *
@@ -13,7 +16,6 @@ from utils.datagen import *
 from utils.io import*
 from custom_layers.custom import DeltaLayer
 from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, autoencoder, deltanet_v1
-from end_to_end import load_finetuned_dbn
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
@@ -21,6 +23,47 @@ from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer, BatchNorm
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify, leaky_rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint
 from lasagne.objectives import squared_error
+
+
+def load_finetuned_dbn(path):
+    """
+    Load a fine tuned Deep Belief Net from file
+    :param path: path to deep belief net parameters
+    :return: deep belief net
+    """
+    dbn = NeuralNet(
+        layers=[
+            ('input', las.layers.InputLayer),
+            ('l1', las.layers.DenseLayer),
+            ('l2', las.layers.DenseLayer),
+            ('l3', las.layers.DenseLayer),
+            ('l4', las.layers.DenseLayer),
+            ('l5', las.layers.DenseLayer),
+            ('l6', las.layers.DenseLayer),
+            ('l7', las.layers.DenseLayer),
+            ('output', las.layers.DenseLayer)
+        ],
+        input_shape=(None, 1200),
+        l1_num_units=2000, l1_nonlinearity=sigmoid,
+        l2_num_units=1000, l2_nonlinearity=sigmoid,
+        l3_num_units=500, l3_nonlinearity=sigmoid,
+        l4_num_units=50, l4_nonlinearity=linear,
+        l5_num_units=500, l5_nonlinearity=sigmoid,
+        l6_num_units=1000, l6_nonlinearity=sigmoid,
+        l7_num_units=2000, l7_nonlinearity=sigmoid,
+        output_num_units=1200, output_nonlinearity=linear,
+        update=nesterov_momentum,
+        update_learning_rate=0.001,
+        update_momentum=0.5,
+        objective_l2=0.005,
+        verbose=1,
+        regression=True
+    )
+    with open(path, 'rb') as f:
+        pretrained_nn = pickle.load(f)
+    if pretrained_nn is not None:
+        dbn.load_params_from(path)
+    return dbn
 
 
 def configure_theano():
@@ -212,7 +255,7 @@ def main():
     test_data_resized = normalize_input(test_data_resized, centralize=True)
 
     print('compute delta features and featurewise normalize...')
-    encode_fn = compile_encoder('models/end2end_encoder.dat')
+    encode_fn = compile_encoder()
     deltafeatures = concat_first_second_deltas(encode_fn(train_data_resized), train_vidlen_vec)[:, -100:]
     deltafeatures_val = concat_first_second_deltas(encode_fn(test_data_resized), test_vidlen_vec)[:, -100:]
 
@@ -420,8 +463,8 @@ def train_deltanet(save=True):
     lr = theano.shared(np.array(1.0, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(0.90, dtype=theano.config.floatX)
 
-    dbn = load_finetuned_dbn('models/dbn_finetune.dat')
-    network = deltanet_v1.create_model(dbn, (None, None, 1200), input_var, (None, None), mask_var, 250, window_var)
+    dbn = load_finetuned_dbn('models/avletters_ae_finetune.dat')
+    network = deltanet.create_model(dbn, (None, None, 1200), input_var, (None, None), mask_var, 250, window_var)
     print_network(network)
 
     print('compiling model...')
@@ -532,5 +575,5 @@ def train_deltanet(save=True):
     plot_validation_cost(cost_train, cost_val, class_rate)
 
 if __name__ == '__main__':
-    main()
-    # train_deltanet()
+    # main()
+    train_deltanet()

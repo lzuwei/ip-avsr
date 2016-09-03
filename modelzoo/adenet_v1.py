@@ -92,10 +92,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     # Merge layers take in lists of layers to merge as input.
     l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
 
-    # implement drop-out regularization
-    l_dropout = DropoutLayer(l_sum1, p=0.4, name='dropout1')
-
-    l_lstm2, l_lstm2_back = create_blstm(l_dropout, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm2')
+    l_lstm2, l_lstm2_back = create_blstm(l_sum1, l_mask, lstm_size * 2, cell_parameters, gate_parameters, 'lstm2')
 
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
@@ -109,4 +106,4 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_out = DenseLayer(
         l_forward_slice1, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='output')
 
-    return l_out
+    return l_out, l_concat

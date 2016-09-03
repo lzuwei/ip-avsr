@@ -170,12 +170,24 @@ def visualize_images(images, shape=(30, 40), savefilename=None):
         o.save('{}.png'.format(savefilename))
 
 
-def visualize_reconstruction(original, reconstructed, shape=(30, 40), savefilename=None):
+def visualize_sequence(sequence, shape=(30, 40), savefilename=None, title='sequence'):
+    cols = int(math.ceil(len(sequence) / 2.0))
+    vis = tile_raster_images(sequence, shape, (2, cols), tile_spacing=(1, 1))
+    plt.title(title)
+    plt.axis('off')
+    plt.show()
+    if savefilename:
+        o = Image.fromarray(vis)
+        o.save('{}.png'.format(savefilename))
+
+
+def visualize_reconstruction(original, reconstructed, shape=(30, 40),
+                             savefilename=None, title1='original', title2='reconstructed'):
     w = int(math.sqrt(len(original)))
     orig = tile_raster_images(original, shape, (w, w), tile_spacing=(1, 1))
-    plt.title('original')
+    plt.title(title1)
     recon = tile_raster_images(reconstructed, shape, (w, w), tile_spacing=(1, 1))
-    plt.title('reconstructed')
+    plt.title(title2)
     plt.show()
     if savefilename:
         o = Image.fromarray(orig)
@@ -184,11 +196,31 @@ def visualize_reconstruction(original, reconstructed, shape=(30, 40), savefilena
         r.save('{}_recon.png'.format(savefilename))
 
 
-def visualize_layer(layer, w, h):
+def visualize_layer(layer, row, col, w, h):
     W_encode = layer.W.get_value()
-    tile_raster_images(W_encode.T, (30, 40), (w, h), tile_spacing=(1, 1))
+    tile_raster_images(W_encode.T, (row, col), (w, h), tile_spacing=(1, 1))
     plt.title('filters')
     plt.show()
+
+
+def visualize_activations(weights, examples, shape, weight_idx_to_visualize, savefilename=None):
+    """
+    Visualize the activations. Does not check bounds of weight index to visualize,
+    ensure it falls within the bounds of the weights being passed in.
+    :param weights: matrix of weights
+    :param examples: examples to visualize
+    :param shape: shape of image
+    :param weight_idx_to_visualize: list of weight indexes to visualize
+    """
+    for i in weight_idx_to_visualize:
+        w = weights[:, i]
+        activations = w * examples
+        if savefilename:
+            visualize_reconstruction(examples, activations, shape,
+                                     '{}_w{}'.format(savefilename, i), 'Raw', 'Activations')
+        else:
+            visualize_reconstruction(examples, activations, shape,
+                                     None, 'Raw', 'Activations')
 
 
 def plot_confusion_matrix(conf_mat, headers, fmt='grid'):

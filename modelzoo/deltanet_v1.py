@@ -80,17 +80,9 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     encoder_len = las.layers.get_output_shape(l_encoder)[-1]
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
-    l_lstm = LSTMLayer(
-        l_delta, lstm_size,
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='lstm')
-
-    l_forward_slice1 = SliceLayer(l_lstm, -1, 1, name='slice1')
+    l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm1')
+    l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
+    l_forward_slice1 = SliceLayer(l_sum1, -1, 1, name='slice1')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,

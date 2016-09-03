@@ -2,7 +2,7 @@ import theano.tensor as T
 
 import lasagne as las
 from lasagne.layers import InputLayer, LSTMLayer, DenseLayer, ConcatLayer, SliceLayer, ReshapeLayer, ElemwiseSumLayer
-from lasagne.layers import Gate, DropoutLayer
+from lasagne.layers import Gate, DropoutLayer, BatchNormLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
 
 from custom_layers.custom import DeltaLayer
@@ -14,25 +14,6 @@ def create_pretrained_encoder(weights, biases, incoming):
     l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
     l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
     return l_4
-
-
-def create_lstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name):
-    if cell_parameters is None:
-        cell_parameters = Gate()
-    if gate_parameters is None:
-        gate_parameters = Gate()
-
-    l_lstm = LSTMLayer(
-        l_incoming, hidden_units,
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='f_{}'.format(name))
-
-    return l_lstm
 
 
 def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name):
@@ -64,7 +45,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
 
 
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                 lstm_size=250, win=T.iscalar('theta)'),
+                 dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
                  output_classes=26):
 
     dbn_layers = dbn.get_all_layers()
@@ -91,32 +72,38 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
 
     l_in = InputLayer(input_shape, input_var, 'input')
     l_mask = InputLayer(mask_shape, mask_var, 'mask')
+    l_dct = InputLayer(dct_shape, dct_var, 'dct')
 
     symbolic_batchsize = l_in.input_var.shape[0]
     symbolic_seqlen = l_in.input_var.shape[1]
 
     l_reshape1 = ReshapeLayer(l_in, (-1, input_shape[-1]), name='reshape1')
     l_encoder = create_pretrained_encoder(weights, biases, l_reshape1)
+    l_encoder_bn = BatchNormLayer(l_encoder, name='batchnorm1')
     encoder_len = las.layers.get_output_shape(l_encoder)[-1]
-    l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
+    l_reshape2 = ReshapeLayer(l_encoder_bn, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
 
-    # l_lstm = create_lstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm1')
-    l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm1')
+    l_concat = ConcatLayer([l_delta, l_dct], axis=2, name='concat')
+
+    l_dropout1 = DropoutLayer(l_concat, name='dropout1')
+
+    l_lstm, l_lstm_back = create_blstm(l_dropout1, l_mask, lstm_size * 2, cell_parameters, gate_parameters, 'lstm1')
 
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
     l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
 
-    # l_lstm2, l_lstm2_back = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm2')
+    # implement drop-out regularization
+    l_dropout2 = DropoutLayer(l_sum1, name='dropout2')
 
-    # l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm2_back], name='sum2')
+    l_lstm2, l_lstm2_back = create_blstm(l_dropout2, l_mask, lstm_size * 2, cell_parameters, gate_parameters, 'lstm2')
 
-    # l_lstm3, l_lstm3_back = create_blstm(l_sum2, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm3')
+    # We'll combine the forward and backward layer output by summing.
+    # Merge layers take in lists of layers to merge as input.
+    l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm2_back])
 
-    # l_sum3 = ElemwiseSumLayer([l_lstm3, l_lstm3_back], name='sum3')
-
-    l_forward_slice1 = SliceLayer(l_sum1, -1, 1, name='slice1')
+    l_forward_slice1 = SliceLayer(l_sum2, -1, 1, name='slice1')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,

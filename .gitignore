@@ -5,6 +5,9 @@
 #.idea
 .idea/
 
+# ipython checkpoints
+**/.ipynb_checkpoints/
+
 # data and model files
 */data
 */models

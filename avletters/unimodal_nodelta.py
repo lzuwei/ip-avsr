@@ -5,7 +5,6 @@ import os
 import time
 import pickle
 import ConfigParser
-import argparse
 
 import theano.tensor as T
 import theano
@@ -25,9 +24,9 @@ from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, adenet_v4, basel
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer, BatchNormLayer, batch_norm
-from lasagne.nonlinearities import tanh, linear, sigmoid, rectify, leaky_rectify
-from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint
+from lasagne.layers import ConcatLayer
+from lasagne.nonlinearities import tanh, linear, sigmoid
+from lasagne.updates import nesterov_momentum, adadelta, norm_constraint
 from lasagne.objectives import squared_error
 from nolearn.lasagne import NeuralNet
 
@@ -187,17 +186,16 @@ def create_pretrained_encoder(weights, biases, incoming):
     return l_4
 
 
-def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
+def evaluate_model(X_val, y_val, mask_val, eval_fn):
     """
     Evaluate a lstm model
     :param X_val: validation inputs
     :param y_val: validation targets
     :param mask_val: input masks for variable sequences
-    :param window_size: size of window for computing delta coefficients
     :param eval_fn: evaluation function
     :return: classification rate, confusion matrix
     """
-    output = eval_fn(X_val, mask_val, window_size)
+    output = eval_fn(X_val, mask_val)
     no_gps = output.shape[1]
     confusion_matrix = np.zeros((no_gps, no_gps), dtype='int')
 
@@ -212,33 +210,192 @@ def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
     return classification_rate, confusion_matrix
 
 
-def parse_options():
-    options = dict()
-    options['config'] = 'config/normal.ini'
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', help='config file to use, default=config/normal.ini')
-    parser.add_argument('--write_results', help='write results to file')
-    args = parser.parse_args()
-    if args.config:
-        options['config'] = args.config
-    if args.write_results:
-        options['write_results'] = args.write_results
-    return options
+def construct_lstm(input_size, lstm_size, output_size, train_data_gen, val_data_gen):
+
+    # All gates have initializers for the input-to-gate and hidden state-to-gate
+    # weight matrices, the cell-to-gate weight vector, the bias vector, and the nonlinearity.
+    # The convention is that gates use the standard sigmoid nonlinearity,
+    # which is the default for the Gate class.
+    gate_parameters = Gate(
+        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
+        b=las.init.Constant(0.))
+    cell_parameters = Gate(
+        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
+        # Setting W_cell to None denotes that no cell connection will be used.
+        W_cell=None, b=las.init.Constant(0.),
+        # By convention, the cell nonlinearity is tanh in an LSTM.
+        nonlinearity=tanh)
+
+    # prepare the input layers
+    # By setting the first and second dimensions to None, we allow
+    # arbitrary minibatch sizes with arbitrary sequence lengths.
+    # The number of feature dimensions is 150, as described above.
+    l_in = InputLayer(shape=(None, None, input_size))
+    # This input will be used to provide the network with masks.
+    # Masks are expected to be matrices of shape (n_batch, n_time_steps);
+    # both of these dimensions are variable for us so we will use
+    # an input shape of (None, None)
+    l_mask = InputLayer(shape=(None, None))
+
+    # Our LSTM will have 180 hidden/cell units as published in paper
+    N_HIDDEN = lstm_size
+    l_lstm = LSTMLayer(
+        l_in, N_HIDDEN,
+        # We need to specify a separate input for masks
+        mask_input=l_mask,
+        # Here, we supply the gate parameters for each gate
+        ingate=gate_parameters, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        # We'll learn the initialization and use gradient clipping
+        learn_init=True, grad_clipping=5.)
+
+    # The "backwards" layer is the same as the first,
+    # except that the backwards argument is set to True.
+    l_lstm_back = LSTMLayer(
+        l_in, N_HIDDEN, ingate=gate_parameters,
+        mask_input=l_mask, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        learn_init=True, grad_clipping=5., backwards=True)
+    # We'll combine the forward and backward layer output by summing.
+    # Merge layers take in lists of layers to merge as input.
+    l_sum = ElemwiseSumLayer([l_lstm, l_lstm_back])
+
+    # implement drop-out regularization
+    l_dropout = DropoutLayer(l_sum)
+
+    l_lstm2 = LSTMLayer(
+        l_dropout, N_HIDDEN,
+        # We need to specify a separate input for masks
+        mask_input=l_mask,
+        # Here, we supply the gate parameters for each gate
+        ingate=gate_parameters, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        # We'll learn the initialization and use gradient clipping
+        learn_init=True, grad_clipping=5.)
+
+    # The "backwards" layer is the same as the first,
+    # except that the backwards argument is set to True.
+    l_lstm_back2 = LSTMLayer(
+        l_dropout, N_HIDDEN, ingate=gate_parameters,
+        mask_input=l_mask, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        learn_init=True, grad_clipping=5., backwards=True)
+
+    # We'll combine the forward and backward layer output by summing.
+    # Merge layers take in lists of layers to merge as input.
+    l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm_back2])
+
+    '''
+    l_dropout2 = DropoutLayer(l_sum2)
+
+    l_lstm3 = LSTMLayer(
+        l_dropout2, N_HIDDEN,
+        # We need to specify a separate input for masks
+        mask_input=l_mask,
+        # Here, we supply the gate parameters for each gate
+        ingate=gate_parameters, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        # We'll learn the initialization and use gradient clipping
+        learn_init=True, grad_clipping=5.)
+
+    # The "backwards" layer is the same as the first,
+    # except that the backwards argument is set to True.
+    l_lstm_back3 = LSTMLayer(
+        l_dropout2, N_HIDDEN, ingate=gate_parameters,
+        mask_input=l_mask, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        learn_init=True, grad_clipping=5., backwards=True)
+
+    # We'll combine the forward and backward layer output by summing.
+    # Merge layers take in lists of layers to merge as input.
+    l_sum3 = ElemwiseSumLayer([l_lstm3, l_lstm_back3])
+    '''
+    # The l_forward layer creates an output of dimension (batch_size, SEQ_LENGTH, N_HIDDEN)
+    # Since we are only interested in the final prediction, we isolate that quantity and feed it to the next layer.
+    # The output of the sliced layer will then be of size (batch_size, N_HIDDEN)
+    l_forward_slice = SliceLayer(l_sum2, -1, 1)
+
+    # Now, we can apply feed-forward layers as usual.
+    # We want the network to predict a classification for the sequence,
+    # so we'll use a the number of classes.
+    l_out = DenseLayer(
+        l_forward_slice, num_units=output_size, nonlinearity=las.nonlinearities.softmax)
+
+    # Now, the shape will be n_batch*n_timesteps, output_size. We can then reshape to
+    # n_batch, n_timesteps to get a single value for each timstep from each sequence
+    # l_out = las.layers.ReshapeLayer(l_dense, (n_batch, n_time_steps))
+
+    # Symbolic variable for the target network output.
+    # It will be of shape n_batch, because there's only 1 target value per sequence.
+    target_values = T.ivector('target_output')
+
+    # This matrix will tell the network the length of each sequences.
+    # The actual values will be supplied by the gen_data function.
+    mask = T.matrix('mask')
+
+    # lasagne.layers.get_output produces an expression for the output of the net
+    network_output = las.layers.get_output(l_out)
+
+    # The value we care about is the final value produced for each sequence
+    # so we simply slice it out.
+    # predicted_values = network_output[:, -1]
+
+    # Our cost will be categorical cross entropy error
+    cost = T.mean(las.objectives.categorical_crossentropy(network_output, target_values))
+    # cost = T.mean((predicted_values - target_values) ** 2)
+    # Retrieve all parameters from the network
+    all_params = las.layers.get_all_params(l_out)
+    # Compute adam updates for training
+    # updates = las.updates.adam(cost, all_params)
+    updates = adadelta(cost, all_params)
+    # Theano functions for training and computing cost
+    train = theano.function(
+        [l_in.input_var, target_values, l_mask.input_var],
+        cost, updates=updates, allow_input_downcast=True)
+
+    compute_cost = theano.function(
+        [l_in.input_var, target_values, l_mask.input_var], cost, allow_input_downcast=True)
+
+    probs = theano.function([l_in.input_var, l_mask.input_var], network_output, allow_input_downcast=True)
+
+    # We'll use this "validation set" to periodically check progress
+    X_val, y_val, mask_val = next(val_data_gen)
+
+    # We'll train the network with 10 epochs of 100 minibatches each
+    cost_train = []
+    cost_val = []
+    class_rate = []
+    NUM_EPOCHS = 20
+    EPOCH_SIZE = 26
+    for epoch in range(NUM_EPOCHS):
+        for _ in range(EPOCH_SIZE):
+            X, y, m = next(train_data_gen)
+            train(X, y, m)
+        cost_train.append(compute_cost(X, y, m))
+        cost_val.append(compute_cost(X_val, y_val, mask_val))
+        cr, _ = evaluate_model(X_val, y_val, mask_val, probs)
+        class_rate.append(cr)
+
+        # one good value to early stop using GL technique, alpha = 0.10 (10% worst)
+        gl = cost_val[-1] / np.min(cost_val) - 1
+        # PQ, GL / Pk(t) where Pk(t) = 1000 * (sum(training strip error) / k * min(training strip error) - 1
+
+        print("Epoch {} train cost = {}, validation cost = {}, generalization loss = {}, classification rate = {}"
+              .format(epoch + 1, cost_train[-1], cost_val[-1], gl, cr))
+    cr, conf = evaluate_model(X_val, y_val, mask_val, probs)
+    print('Final Model')
+    print('classification rate: {}'.format(cr))
+    print('confusion matrix: ')
+    plot_confusion_matrix(conf, fmt='grid')
+    plot_validation_cost(cost_train, cost_val, class_rate)
 
 
 def main():
     configure_theano()
-    options = parse_options()
-    config_file = options['config']
+    config_file = 'config/normal.ini'
     config = ConfigParser.ConfigParser()
     config.read(config_file)
-
-    print('CLI options: {}'.format(options.items()))
-
-    print('Reading Config File: {}...'.format(config_file))
-    print(config.items('data'))
-    print(config.items('models'))
-    print(config.items('training'))
+    print('loading config file: {}'.format(config_file))
 
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
@@ -311,19 +468,17 @@ def main():
         inputs = las.layers.get_all_layers(encoder)[0].input_var
     else:
         inputs = T.tensor3('inputs', dtype='float32')
-    window = T.iscalar('theta')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
     lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
-    network = deltanet.create_model(dbn, (None, None, 1200), inputs,
-                                    (None, None), mask,
-                                    250, window)
+    network = baseline_end2end.create_model(dbn, (None, None, 1200), inputs,
+                                            (None, None), mask, 250)
 
     print_network(network)
-    draw_to_file(las.layers.get_all_layers(network), 'network.png', verbose=True)
+    # draw_to_file(las.layers.get_all_layers(network), 'network.png', verbose=True)
     # exit()
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
@@ -340,16 +495,16 @@ def main():
                 updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
 
     train = theano.function(
-        [inputs, targets, mask, window],
+        [inputs, targets, mask],
         cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs, targets, mask, window], cost, allow_input_downcast=True)
+    compute_train_cost = theano.function([inputs, targets, mask], cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
     compute_test_cost = theano.function(
-        [inputs, targets, mask, window], test_cost, allow_input_downcast=True)
+        [inputs, targets, mask], test_cost, allow_input_downcast=True)
 
-    val_fn = theano.function([inputs, mask, window], test_predictions, allow_input_downcast=True)
+    val_fn = theano.function([inputs, mask], test_predictions, allow_input_downcast=True)
 
     # We'll train the network with 10 epochs of 30 minibatches each
     print('begin training...')
@@ -396,10 +551,10 @@ def main():
                 epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
             print(print_str, end='')
             sys.stdout.flush()
-            train(X, y, m, WINDOW_SIZE)
+            train(X, y, m)
             print('\r', end='')
-        cost = compute_train_cost(X, y, m, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, WINDOW_SIZE)
+        cost = compute_train_cost(X, y, m)
+        val_cost = compute_test_cost(X_val, y_val, mask_val)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -409,7 +564,7 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model(X_val, y_val, mask_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model(X_val, y_val, mask_val, val_fn)
         class_rate.append(cr)
 
         print("Epoch {} train cost = {}, validation cost = {}, "
@@ -425,7 +580,7 @@ def main():
             break
 
         # learning rate decay
-        if epoch + 1 >= decay_start:  # 20, 8
+        if epoch > decay_start:  # 20, 8
             lr.set_value(lr.get_value() * lr_decay)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
@@ -436,8 +591,8 @@ def main():
     print('Best Model')
     print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
     print('confusion matrix: ')
-    plot_confusion_matrix(best_conf, letters, fmt='latex')
-    plot_validation_cost(cost_train, cost_val, class_rate)
+    plot_confusion_matrix(best_conf, letters, fmt='grid')
+    plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost')
 
 if __name__ == '__main__':
     main()

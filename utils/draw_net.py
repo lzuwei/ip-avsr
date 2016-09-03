@@ -44,6 +44,16 @@ def get_hex_color(layer_type):
         return '#6CCF8D'
     if 'Pool' in layer_type:
         return '#9D9DD2'
+    if 'Slice' in layer_type:
+        return '#f6f930'
+    if 'LSTM' in layer_type:
+        return '#e06b04'
+    if 'Reshape' in layer_type:
+        return '#e3b029'
+    if 'Dropout' in layer_type:
+        return '#ffb2ea'
+    if 'Delta' in layer_type:
+        return '#d7b8ff'
     else:
         return '#{0:x}'.format(hash(layer_type) % 2**24)
 
@@ -68,7 +78,7 @@ def get_pydot_graph(layers, output_shape=True, verbose=False):
     pydot_nodes = {}
     pydot_edges = []
     for i, layer in enumerate(layers):
-        layer_type = '{0}'.format(layer.__class__.__name__)
+        layer_type = '{0}: {1}'.format(layer.__class__.__name__, layer.name)
         key = repr(layer)
         label = layer_type
         color = get_hex_color(layer_type)
@@ -86,8 +96,15 @@ def get_pydot_graph(layers, output_shape=True, verbose=False):
                 label += '\n' + 'nonlinearity: {0}'.format(nonlinearity)
 
         if output_shape:
+            output_shape = lasagne.layers.get_output_shape(layer)
+            if len(output_shape) is 3:
+                output_shape_str = '(Batch Size, Seq Len, {})'.format(output_shape[-1])
+            if len(output_shape) is 2:
+                output_shape_str = '(Batch Size x Seq Len, {})'.format(output_shape[-1])
+            if layer.name == 'mask':
+                output_shape_str = '(Batch Size, Seq Len)'
             label += '\n' + \
-                'Output shape: {0}'.format(lasagne.layers.get_output_shape(layer))
+                'Output shape: {0}'.format(output_shape_str)
         pydot_nodes[key] = pydot.Node(key,
                                       label=label,
                                       shape='record',

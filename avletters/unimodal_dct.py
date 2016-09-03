@@ -3,8 +3,7 @@ import sys
 sys.path.insert(0, '../')
 import os
 import time
-import cPickle as pickle
-import logging
+import pickle
 import ConfigParser
 import argparse
 
@@ -20,8 +19,9 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
+from utils.draw_net import draw_to_file
 from custom_layers.custom import DeltaLayer
-from modelzoo import adenet_v6, adenet_v2_1
+from modelzoo import lstm_classifier_baseline
 
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
@@ -37,6 +37,55 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
+def test_delta():
+    a = np.array([[1,1,1,1,1,1,1,1,10], [2,2,2,2,2,2,2,2,20], [3,3,3,3,3,3,3,3,30], [4,4,4,4,4,4,4,4,40]])
+    aa = deltas(a, 9)
+    print(aa)
+
+
+def test_concatlayer():
+    a = np.array([
+        [
+            [1, 2, 3, 4],
+            [1, 2, 3, 4],
+            [1, 2, 3, 4]
+        ],
+        [
+            [1, 2, 3, 4],
+            [1, 2, 3, 4],
+            [1, 2, 3, 4]
+        ]
+    ], dtype=np.int32)
+    b = np.array([
+        [
+            [5, 6, 7],
+            [5, 6, 7],
+            [5, 6, 7]
+        ],
+        [
+            [5, 6, 7],
+            [5, 6, 7],
+            [5, 6, 7]
+        ]
+    ], dtype=np.int32)
+
+    input_var = T.tensor3('input', dtype='int32')
+    dct_var = T.tensor3('dct', dtype='int32')
+    l_in = InputLayer((None, None, 4), input_var, name='input')
+    l_dct = InputLayer((None, None, 3), dct_var, name='dct')
+    l_merge = ConcatLayer([l_in, l_dct], axis=2, name='merge')
+    network = las.layers.get_all_layers(l_merge)
+    print_network(network)
+    output = las.layers.get_output(l_merge)
+    merge_fn = theano.function([input_var, dct_var], output, allow_input_downcast=True)
+    res = merge_fn(a, b)
+    assert res.shape == (2, 3, 7)
+
+
+def test_datagen(X, seqlens):
+    pass
+
+
 def load_dbn(path='models/avletters_ae.mat'):
     """
     load a pretrained dbn from path
@@ -45,44 +94,45 @@ def load_dbn(path='models/avletters_ae.mat'):
     """
     # create the network using weights from pretrain_nn.mat
     nn = sio.loadmat(path)
-    w1 = nn['w1']
-    w2 = nn['w2']
-    w3 = nn['w3']
-    w4 = nn['w4']
-    w5 = nn['w5']
-    w6 = nn['w6']
-    w7 = nn['w7']
-    w8 = nn['w8']
-    b1 = nn['b1'][0]
-    b2 = nn['b2'][0]
-    b3 = nn['b3'][0]
-    b4 = nn['b4'][0]
-    b5 = nn['b5'][0]
-    b6 = nn['b6'][0]
-    b7 = nn['b7'][0]
-    b8 = nn['b8'][0]
+    w1 = nn['w1'].astype('float32')
+    w2 = nn['w2'].astype('float32')
+    w3 = nn['w3'].astype('float32')
+    w4 = nn['w4'].astype('float32')
+    w5 = nn['w5'].astype('float32')
+    w6 = nn['w6'].astype('float32')
+    w7 = nn['w7'].astype('float32')
+    w8 = nn['w8'].astype('float32')
+    b1 = nn['b1'][0].astype('float32')
+    b2 = nn['b2'][0].astype('float32')
+    b3 = nn['b3'][0].astype('float32')
+    b4 = nn['b4'][0].astype('float32')
+    b5 = nn['b5'][0].astype('float32')
+    b6 = nn['b6'][0].astype('float32')
+    b7 = nn['b7'][0].astype('float32')
+    b8 = nn['b8'][0].astype('float32')
 
     layers = [
         (InputLayer, {'name': 'input', 'shape': (None, 1200)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
+        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
         (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
+        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
         (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
+        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
         (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
+        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
         (DenseLayer, {'name': 'output', 'num_units': 1200, 'nonlinearity': linear, 'W': w8, 'b': b8}),
     ]
 
     dbn = NeuralNet(
         layers=layers,
-        max_epochs=30,
+        max_epochs=10,
         objective_loss_function=squared_error,
-        update=nesterov_momentum,
+        update=adadelta,
         regression=True,
         verbose=1,
-        update_learning_rate=0.001,
-        update_momentum=0.05,
+        update_learning_rate=0.01,
+        # update_learning_rate=0.001,
+        # update_momentum=0.05,
         objective_l2=0.005,
     )
     return dbn
@@ -137,18 +187,16 @@ def create_pretrained_encoder(weights, biases, incoming):
     return l_4
 
 
-def evaluate_model(X_val, y_val, mask_val, diff_val, window_size, eval_fn):
+def evaluate_model(X_val, y_val, mask_val, eval_fn):
     """
     Evaluate a lstm model
     :param X_val: validation inputs
     :param y_val: validation targets
     :param mask_val: input masks for variable sequences
-    :param diff_val: diff image features
-    :param window_size: size of window for computing delta coefficients
     :param eval_fn: evaluation function
     :return: classification rate, confusion matrix
     """
-    output = eval_fn(X_val, mask_val, diff_val, window_size)
+    output = eval_fn(X_val, mask_val)
     no_gps = output.shape[1]
     confusion_matrix = np.zeros((no_gps, no_gps), dtype='int')
 
@@ -165,9 +213,9 @@ def evaluate_model(X_val, y_val, mask_val, diff_val, window_size, eval_fn):
 
 def parse_options():
     options = dict()
-    options['config'] = 'config/bimodal_diff_image.ini'
+    options['config'] = 'config/unimodal_dct.ini'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', help='config file to use, default=config/bimodal_diff_image.ini')
+    parser.add_argument('--config', help='config file to use, default=config/unimodal_dct.ini')
     parser.add_argument('--write_results', help='write results to file')
     args = parser.parse_args()
     if args.config:
@@ -193,37 +241,23 @@ def main():
 
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
-    diff_data = load_mat_file(config.get('data', 'diff'))
+    dct_data = load_mat_file(config.get('data', 'dct'))
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
-    ae_finetuned_diff = config.get('models', 'finetuned_diff')
-    use_adascale = config.getboolean('models', 'use_adascale')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
     do_finetune = config.getboolean('training', 'do_finetune')
     save_finetune = config.getboolean('training', 'save_finetune')
     load_finetune = config.getboolean('training', 'load_finetune')
-    load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
-    model = config.get('models', 'model')
 
     # create the necessary variable mappings
-    data_matrix = data['dataMatrix']
+    data_matrix = data['dataMatrix'].astype('float32')
     data_matrix_len = data_matrix.shape[0]
     targets_vec = data['targetsVec']
     vid_len_vec = data['videoLengthVec']
     iter_vec = data['iterVec']
-    diff_data_matrix = diff_data['dataMatrix']
-
-    # samplewise normalize
-    # print('sameplewise mean normalize...')
-    # data_matrix = normalize_input(data_matrix)
-    # diff_data_matrix = normalize_input(diff_data_matrix)
-    # diff_data_matrix = compute_diff_images(data_matrix, vid_len_vec.reshape((-1,))).astype('float32')
-
-    # mean remove
-    # dct_feats = dct_feats[:, 0:30]
-    # dct_feats = sequencewise_mean_image_subtraction(dct_feats, vid_len_vec.reshape((-1,)))
+    dct_feats = dct_data['dctFeatures'].astype('float32')
 
     indexes = create_split_index(data_matrix_len, vid_len_vec, iter_vec)
     train_vidlen_vec, test_vidlen_vec = split_videolen(vid_len_vec, iter_vec)
@@ -238,61 +272,27 @@ def main():
     test_data = data_matrix[indexes == False]
     test_targets = targets_vec[indexes == False]
     test_targets = test_targets.reshape((len(test_targets),))
-    train_diff_data = diff_data_matrix[indexes == True]
-    test_diff_data = diff_data_matrix[indexes == False]
 
-    if do_finetune:
-        print('fine-tuning...')
-        ae = load_dbn(ae_pretrained)
-        ae.initialize()
-        ae.fit(train_data, train_data)
-        res = ae.predict(test_data)
-        # print(res.shape)
-        visualize_reconstruction(test_data[300:336], res[300:336])
+    # split the dct features
+    train_dct = dct_feats[indexes == True].astype(np.float32)
+    test_dct = dct_feats[indexes == False].astype(np.float32)
+    train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
+    test_dct = (test_dct - dct_mean) / dct_std
 
-    if save_finetune:
-        pickle.dump(ae, open(ae_finetuned, 'wb'))
-
-    if load_finetune:
-        print('loading pre-trained encoding layers...')
-        ae = pickle.load(open(ae_finetuned, 'rb'))
-        ae.initialize()
-
-    if load_finetune_diff:
-        print('loading pre-trained diff image encoding layers...')
-        diff_ae = pickle.load(open(ae_finetuned_diff, 'rb'))
-        diff_ae.initialize()
-
-    load_convae = False
-    if load_convae:
-        print('loading pre-trained convolutional autoencoder...')
-        encoder = load_model('models/conv_encoder_norm.dat')
-        inputs_raw = las.layers.get_all_layers(encoder)[0].input_var
-    else:
-        inputs_raw = T.tensor3('inputs_raw', dtype='float32')
-        inputs_diff = T.tensor3('inputs_diff', dtype='float32')
-
-    window = T.iscalar('theta')
+    inputs = T.tensor3('inputs', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
     lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
-
-    if model == 'adenet_v6':
-        network, adascale = adenet_v6.create_model(ae, diff_ae, (None, None, 1200), inputs_raw,
-                                                   (None, None), mask,
-                                                   (None, None, 1200), inputs_diff,
-                                                   250, window, 26, use_adascale)
-
-    if model == 'adenet_v2_1':
-        network, adascale = adenet_v2_1.create_model(ae, diff_ae, (None, None, 1200), inputs_raw,
-                                                     (None, None), mask,
-                                                     (None, None, 1200), inputs_diff,
-                                                     250, window, 26, use_adascale)
+    network = lstm_classifier_baseline.create_model((None, None, 90), inputs,
+                                                    (None, None), mask,
+                                                    250, 26)
 
     print_network(network)
+    draw_to_file(las.layers.get_all_layers(network), 'network.png', verbose=True)
+    # exit()
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
@@ -308,24 +308,23 @@ def main():
                 updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
 
     train = theano.function(
-        [inputs_raw, targets, mask, inputs_diff, window],
+        [inputs, targets, mask],
         cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs_raw, targets, mask, inputs_diff, window],
-                                         cost, allow_input_downcast=True)
+    compute_train_cost = theano.function([inputs, targets, mask], cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
     compute_test_cost = theano.function(
-        [inputs_raw, targets, mask, inputs_diff, window], test_cost, allow_input_downcast=True)
+        [inputs, targets, mask], test_cost, allow_input_downcast=True)
 
-    val_fn = theano.function([inputs_raw, mask, inputs_diff, window], test_predictions, allow_input_downcast=True)
+    val_fn = theano.function([inputs, mask], test_predictions, allow_input_downcast=True)
 
     # We'll train the network with 10 epochs of 30 minibatches each
     print('begin training...')
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 25
+    NUM_EPOCHS = 30
     EPOCH_SIZE = 20
     BATCH_SIZE = 26
     WINDOW_SIZE = 9
@@ -346,8 +345,7 @@ def main():
     # We'll use this "validation set" to periodically check progress
     X_val, y_val, mask_val, idxs_val = next(val_datagen)
     integral_lens_val = compute_integral_len(test_vidlen_vec)
-    diff_val = gen_seq_batch_from_idx(test_diff_data, idxs_val,
-                                      test_vidlen_vec, integral_lens_val, np.max(test_vidlen_vec))
+    dct_val = gen_seq_batch_from_idx(test_dct, idxs_val, test_vidlen_vec, integral_lens_val, np.max(test_vidlen_vec))
 
     def early_stop(cost_window):
         if len(cost_window) < 2:
@@ -365,16 +363,16 @@ def main():
         time_start = time.time()
         for i in range(EPOCH_SIZE):
             X, y, m, batch_idxs = next(datagen)
-            diff = gen_seq_batch_from_idx(train_diff_data, batch_idxs,
-                                          train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
+            d = gen_seq_batch_from_idx(train_dct, batch_idxs,
+                                       train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
             print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
                 epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
             print(print_str, end='')
             sys.stdout.flush()
-            train(X, y, m, diff, WINDOW_SIZE)
+            train(d, y, m)
             print('\r', end='')
-        cost = compute_train_cost(X, y, m, diff, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, diff_val, WINDOW_SIZE)
+        cost = compute_train_cost(d, y, m)
+        val_cost = compute_test_cost(dct_val, y_val, mask_val)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -384,7 +382,7 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model(X_val, y_val, mask_val, diff_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model(dct_val, y_val, mask_val, val_fn)
         class_rate.append(cr)
 
         print("Epoch {} train cost = {}, validation cost = {}, "
@@ -395,14 +393,12 @@ def main():
             best_val = val_cost
             best_conf = val_conf
             best_cr = cr
-            if use_adascale:
-                adascale_param = las.layers.get_all_param_values(adascale, scaling_param=True)
 
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
             break
 
         # learning rate decay
-        if epoch + 1 >= decay_start:
+        if epoch + 1 >= decay_start:  # 20, 8
             lr.set_value(lr.get_value() * lr_decay)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
@@ -412,10 +408,8 @@ def main():
 
     print('Best Model')
     print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
-    if use_adascale:
-        print("final scaling params: {}".format(adascale_param))
     print('confusion matrix: ')
-    plot_confusion_matrix(best_conf, letters, fmt='grid')
+    plot_confusion_matrix(best_conf, letters, fmt='latex')
     plot_validation_cost(cost_train, cost_val, class_rate)
 
 if __name__ == '__main__':

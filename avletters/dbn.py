@@ -37,7 +37,7 @@ def test_delta():
     print(aa)
 
 
-def load_dbn(path='../../DBNExample/avletters_ae.mat'):
+def load_dbn(path='models/avletters_ae.mat'):
     """
     load a pretrained dbn from path
     :param path: path to the .mat dbn
@@ -86,6 +86,46 @@ def load_dbn(path='../../DBNExample/avletters_ae.mat'):
         objective_l2=0.005,
     )
     return dbn
+
+
+def load_encoder(path):
+    """
+        load a pretrained dbn from path
+        :param path: path to the .mat dbn
+        :return: pretrained unrolled encoder
+        """
+    # create the network using weights from pretrain_nn.mat
+    nn = sio.loadmat(path)
+    w1 = nn['w1']
+    w2 = nn['w2']
+    w3 = nn['w3']
+    w4 = nn['w4']
+    b1 = nn['b1'][0]
+    b2 = nn['b2'][0]
+    b3 = nn['b3'][0]
+    b4 = nn['b4'][0]
+
+    encoder = NeuralNet(
+        layers=[
+            (InputLayer, {'name': 'input', 'shape': (None, 1200)}),
+            (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid,
+                          'W': w1, 'b': b1}),
+            (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid,
+                          'W': w2, 'b': b2}),
+            (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid,
+                          'W': w3, 'b': b3}),
+            (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear,
+                          'W': w4, 'b': b4}),
+        ],
+        update=nesterov_momentum,
+        update_learning_rate=0.001,
+        update_momentum=0.5,
+        objective_l2=0.005,
+        verbose=1,
+        regression=True
+    )
+    encoder.initialize()
+    return encoder
 
 
 def load_finetuned_dbn(path):
@@ -474,22 +514,26 @@ def main():
         dbn = pickle.load(open('models/avletters_ae_finetune.dat', 'rb'))
         dbn.initialize()
 
-    encoder = extract_encoder(dbn)
+    use_untuned_model = False
+    if use_untuned_model:
+        encoder = load_encoder('models/avletters_ae.mat')
+    else:
+        encoder = extract_encoder(dbn)
     X_encode = encoder.predict(train_data_resized)
     print('encoded shape: {}'.format(X_encode.shape))
 
     # group the data into sequences to find deltas
-    # X_encode = concat_first_second_deltas(X_encode, train_vidlen_vec)
-    # assert X_encode.shape == (train_data_resized.shape[0], 150)
+    X_encode = concat_first_second_deltas(X_encode, train_vidlen_vec)
+    assert X_encode.shape == (train_data_resized.shape[0], 150)
 
     # training vectors, z-normalise with mean 0, std 1 sample sequence-wise
     X_encode, train_feature_mean, train_feature_std = featurewise_normalize_sequence(X_encode)
 
     # encode and normalize test data using training feature mean, std
     X_encode_test = encoder.predict(test_data_resized)
-    # X_encode_test = concat_first_second_deltas(X_encode_test, test_vidlen_vec)
+    X_encode_test = concat_first_second_deltas(X_encode_test, test_vidlen_vec)
     X_encode_test = (X_encode_test - train_feature_mean) / train_feature_std
-    # assert X_encode_test.shape == (test_data_resized.shape[0], 150)
+    assert X_encode_test.shape == (test_data_resized.shape[0], 150)
     input_size = X_encode_test.shape[1]
     print('bottleneck features encoded with size: {}, train lstm...'.format(input_size))
 

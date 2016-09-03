@@ -5,16 +5,6 @@ from lasagne.layers import InputLayer, LSTMLayer, DenseLayer, ConcatLayer, Slice
 from lasagne.layers import Gate, DropoutLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
 
-from custom_layers.custom import DeltaLayer
-
-
-def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
-    return l_4
-
 
 def create_lstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name):
     if cell_parameters is None:
@@ -63,22 +53,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
     return l_lstm, l_lstm_back
 
 
-def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                 lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26):
-
-    dbn_layers = dbn.get_all_layers()
-    weights = []
-    biases = []
-    weights.append(dbn_layers[1].W.astype('float32'))
-    weights.append(dbn_layers[2].W.astype('float32'))
-    weights.append(dbn_layers[3].W.astype('float32'))
-    weights.append(dbn_layers[4].W.astype('float32'))
-    biases.append(dbn_layers[1].b.astype('float32'))
-    biases.append(dbn_layers[2].b.astype('float32'))
-    biases.append(dbn_layers[3].b.astype('float32'))
-    biases.append(dbn_layers[4].b.astype('float32'))
-
+def create_model(input_shape, input_var, mask_shape, mask_var, lstm_size=250, output_classes=26):
     gate_parameters = Gate(
         W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
         b=las.init.Constant(0.))
@@ -92,31 +67,10 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_in = InputLayer(input_shape, input_var, 'input')
     l_mask = InputLayer(mask_shape, mask_var, 'mask')
 
-    symbolic_batchsize = l_in.input_var.shape[0]
-    symbolic_seqlen = l_in.input_var.shape[1]
+    f_lstm, b_lstm = create_blstm(l_in, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm')
 
-    l_reshape1 = ReshapeLayer(l_in, (-1, input_shape[-1]), name='reshape1')
-    l_encoder = create_pretrained_encoder(weights, biases, l_reshape1)
-    encoder_len = las.layers.get_output_shape(l_encoder)[-1]
-    l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
-    l_delta = DeltaLayer(l_reshape2, win, name='delta')
-
-    # l_lstm = create_lstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm1')
-    l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm1')
-
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
-
-    # l_lstm2, l_lstm2_back = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm2')
-
-    # l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm2_back], name='sum2')
-
-    # l_lstm3, l_lstm3_back = create_blstm(l_sum2, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm3')
-
-    # l_sum3 = ElemwiseSumLayer([l_lstm3, l_lstm3_back], name='sum3')
-
-    l_forward_slice1 = SliceLayer(l_sum1, -1, 1, name='slice1')
+    l_sum = ElemwiseSumLayer([f_lstm, b_lstm], name='sum')
+    l_forward_slice1 = SliceLayer(l_sum, -1, 1, name='slice1')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,

@@ -184,18 +184,18 @@ def map_confusion(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
     return confusions
 
 
-def visualize_confusion(X_val, utterance_no, target, actual):
-    confused_with = abs(target - actual)
-    visualize_sequence(X_val[utterance_no])
-    visualize_sequence(X_val[utterance_no + confused_with], title='confused sequence')
+def visualize_confusion(X_val, vidlens, utterance_no, confused_no):
+    visualize_sequence(X_val[utterance_no, :vidlens[utterance_no]])
+    visualize_sequence(X_val[confused_no, :vidlens[confused_no]],
+                       title='confused sequence')
 
 
 def parse_options():
     options = dict()
-    options['config'] = 'config/bimodal.ini'
+    options['config'] = 'config/bimodal_diff_dct.ini '
     options['write_results'] = None
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', help='config file to use, default=config/bimodal.ini')
+    parser.add_argument('--config', help='config file to use, default=config/bimodal_diff_dct.ini ')
     parser.add_argument('--write_results', help='write results to file')
     args = parser.parse_args()
     if args.config:
@@ -257,215 +257,10 @@ def main():
     test_targets = targets_vec[indexes == False]
     test_targets = test_targets.reshape((len(test_targets),))
 
-    # split the dct features
-    train_dct = dct_feats[indexes == True].astype(np.float32)
-    test_dct = dct_feats[indexes == False].astype(np.float32)
-    train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
-    test_dct = (test_dct - dct_mean) / dct_std
-
-    finetune = False
-    if finetune:
-        print('fine-tuning...')
-        dbn = load_dbn(ae_pretrained)
-        dbn.initialize()
-        dbn.fit(train_data, train_data)
-        res = dbn.predict(test_data)
-        # print(res.shape)
-        visualize_reconstruction(test_data[300:336], res[300:336])
-
-    save = False
-    if save:
-        pickle.dump(dbn, open(ae_finetuned, 'wb'))
-
-    load = True
-    if load:
-        print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open(ae_finetuned, 'rb'))
-        dbn.initialize()
-        # recon = dbn.predict(test_data)
-        # visualize_reconstruction(test_data[300:364], recon[300:364])
-        # exit()
-
-    load_convae = False
-    if load_convae:
-        print('loading pre-trained convolutional autoencoder...')
-        encoder = load_model('models/conv_encoder_norm.dat')
-        inputs = las.layers.get_all_layers(encoder)[0].input_var
-    else:
-        inputs = T.tensor3('inputs', dtype='float32')
-    window = T.iscalar('theta')
-    dct = T.tensor3('dct', dtype='float32')
-    mask = T.matrix('mask', dtype='uint8')
-    targets = T.ivector('targets')
-    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
-
-    print('constructing end to end model...')
-    '''
-    network, l_fuse = adenet_v1.create_model(dbn, (None, None, 1200), inputs,
-                                             (None, None), mask,
-                                             (None, None, 90), dct,
-                                             250, window)
-
-    network = deltanet.create_model(dbn, (None, None, 1200), inputs,
-                                    (None, None), mask,
-                                    250, window)
-
-    '''
-    network, l_fuse = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
-                                             (None, None), mask,
-                                             (None, None, 90), dct,
-                                             250, window, 26, fusiontype)
-
-    '''
-    network = adenet_v2_1.create_model(dbn, (None, None, 1200), inputs,
-                                       (None, None), mask,
-                                       (None, None, 90), dct,
-                                       250, window)
-
-    network, adascale = adenet_v4.create_model(dbn, (None, None, 1200), inputs,
-                                               (None, None), mask,
-                                               (None, None, 90), dct,
-                                               250, window)
-    '''
-    print_network(network)
-    draw_to_file(las.layers.get_all_layers(network), 'network.png')
-    print('compiling model...')
-    predictions = las.layers.get_output(network, deterministic=False)
-    all_params = las.layers.get_all_params(network, trainable=True)
-    cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
-    # updates = las.updates.adam(cost, all_params, learning_rate=lr)
-
-    use_max_constraint = False
-    if use_max_constraint:
-        MAX_NORM = 4
-        for param in las.layers.get_all_params(network, regularizable=True):
-            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
-                updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
-
-    train = theano.function(
-        [inputs, targets, mask, dct, window],
-        cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs, targets, mask, dct, window], cost, allow_input_downcast=True)
-
-    test_predictions = las.layers.get_output(network, deterministic=True)
-    test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
-    compute_test_cost = theano.function(
-        [inputs, targets, mask, dct, window], test_cost, allow_input_downcast=True)
-
-    val_fn = theano.function([inputs, mask, dct, window], test_predictions, allow_input_downcast=True)
-
-    # We'll train the network with 10 epochs of 30 minibatches each
-    print('begin training...')
-    cost_train = []
-    cost_val = []
-    class_rate = []
-    NUM_EPOCHS = 25
-    EPOCH_SIZE = 20
-    BATCH_SIZE = 26
-    WINDOW_SIZE = 9
-    STRIP_SIZE = 3
-    MAX_LOSS = 0.2
-    VALIDATION_WINDOW = 4
-    val_window = circular_list(VALIDATION_WINDOW)
-    train_strip = np.zeros((STRIP_SIZE,))
-    best_val = float('inf')
-    best_conf = None
-    best_cr = 0.0
-
-    datagen = gen_lstm_batch_random(train_data, train_targets, train_vidlen_vec, batchsize=BATCH_SIZE)
-    val_datagen = gen_lstm_batch_random(test_data, test_targets, test_vidlen_vec,
-                                        batchsize=len(test_vidlen_vec))
-    integral_lens = compute_integral_len(train_vidlen_vec)
-
-    # We'll use this "validation set" to periodically check progress
-    X_val, y_val, mask_val, idxs_val = next(val_datagen)
-    integral_lens_val = compute_integral_len(test_vidlen_vec)
-    dct_val = gen_seq_batch_from_idx(test_dct, idxs_val, test_vidlen_vec, integral_lens_val, np.max(test_vidlen_vec))
-
-    # confusions = map_confusion(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
-
-    def early_stop(cost_window):
-        if len(cost_window) < 2:
-            return False
-        else:
-            curr = cost_window[0]
-            for idx, cost in enumerate(cost_window):
-                if curr < cost or idx == 0:
-                    curr = cost
-                else:
-                    return False
-            return True
-
-    for epoch in range(NUM_EPOCHS):
-        time_start = time.time()
-        for i in range(EPOCH_SIZE):
-            X, y, m, batch_idxs = next(datagen)
-            d = gen_seq_batch_from_idx(train_dct, batch_idxs,
-                                       train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
-            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
-            print(print_str, end='')
-            sys.stdout.flush()
-            train(X, y, m, d, WINDOW_SIZE)
-            print('\r', end='')
-        cost = compute_train_cost(X, y, m, d, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, WINDOW_SIZE)
-        cost_train.append(cost)
-        cost_val.append(val_cost)
-        train_strip[epoch % STRIP_SIZE] = cost
-        val_window.push(val_cost)
-
-        gl = 100 * (cost_val[-1] / np.min(cost_val) - 1)
-        pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
-        pq = gl / pk
-
-        cr, val_conf = evaluate_model(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
-        class_rate.append(cr)
-
-        print("Epoch {} train cost = {}, validation cost = {}, "
-              "generalization loss = {:.3f}, GQ = {:.3f}, classification rate = {:.3f} ({:.1f}sec)"
-              .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
-
-        if val_cost < best_val:
-            best_val = val_cost
-            best_conf = val_conf
-            best_cr = cr
-
-        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
-            break
-
-        # learning rate decay
-        if epoch + 1 >= decay_start:
-            lr.set_value(lr.get_value() * lr_decay)
-
-    letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
-               'h', 'i', 'j', 'k', 'l', 'm', 'n',
-               'o', 'p', 'q', 'r', 's', 't', 'u',
-               'v', 'w', 'x', 'y', 'z']
-
-    print('Best Model')
-    print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
-    if fusiontype == 'adasum':
-        adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
-        print("final scaling params: {}".format(adascale_param))
-    print('confusion matrix: ')
-    plot_confusion_matrix(best_conf, letters, fmt='latex')
-    plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost')
-
-    '''
     datagen2 = gen_lstm_batch_seq(test_data, test_targets, test_vidlen_vec,
                                   batchsize=len(test_vidlen_vec))
     X_val, y_val, mask_val = next(datagen2)
-    confusions = map_confusion(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
-    print(confusions)
-    '''
-
-    if options['write_results']:
-        results_file = options['write_results']
-        with open(results_file, mode='a') as f:
-            f.write('{},{},{}\n'.format(fusiontype, best_cr, best_val))
+    visualize_confusion(X_val, test_vidlen_vec, 28, 198)
 
 if __name__ == '__main__':
     main()

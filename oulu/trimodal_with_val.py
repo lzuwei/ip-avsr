@@ -4,6 +4,7 @@ sys.path.insert(0, '../')
 import pickle
 import time
 import ConfigParser
+import argparse
 
 import matplotlib
 matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
@@ -28,7 +29,7 @@ from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad
 from lasagne.objectives import squared_error
 
-from modelzoo import adenet_v2, adenet_v1, adenet_v2_1, adenet_v5
+from modelzoo import adenet_v3
 from utils.plotting_utils import print_network
 
 
@@ -240,12 +241,29 @@ def evaluate_model(X_val, y_val, mask_val, dct_val, X_diff_val, window_size, eva
     return classification_rate, confusion_matrix
 
 
+def parse_options():
+    options = dict()
+    options['config'] = 'config/trimodal.ini'
+    options['write_results'] = ''
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', help='config file to use, default=config/trimodal.ini')
+    parser.add_argument('--write_results', help='write results to file')
+    args = parser.parse_args()
+    if args.config:
+        options['config'] = args.config
+    if args.write_results:
+        options['write_results'] = args.write_results
+    return options
+
+
 def main():
     configure_theano()
-    config_file = 'config/trimodal.ini'
-    print('loading config file: {}'.format(config_file))
+    options = parse_options()
+    config_file = options['config']
     config = ConfigParser.ConfigParser()
     config.read(config_file)
+
+    print('CLI options: {}'.format(options.items()))
 
     print('Reading Config File: {}...'.format(config_file))
     print(config.items('data'))
@@ -258,7 +276,7 @@ def main():
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
-    use_adascale = config.getboolean('models', 'use_adascale')
+    fusiontype = config.get('models', 'fusiontype')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
@@ -356,16 +374,11 @@ def main():
     lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
-    '''
-    network = create_end_to_end_model(dbn, (None, None, 1144), inputs,
-                                      (None, None), mask, 250, window)
-    '''
-
-    network, adascale = adenet_v5.create_model(ae, ae_diff, (None, None, 1144), inputs,
+    network, l_fuse = adenet_v3.create_model(ae, ae_diff, (None, None, 1144), inputs,
                                                (None, None), mask,
                                                (None, None, 90), dct,
                                                (None, None, 1144), inputs_diff,
-                                               250, window, 10, use_adascale)
+                                               250, window, 10, fusiontype)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')
@@ -401,7 +414,7 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 30
+    NUM_EPOCHS = 12
     EPOCH_SIZE = 120
     BATCH_SIZE = 10
     WINDOW_SIZE = 9
@@ -417,10 +430,8 @@ def main():
     datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=BATCH_SIZE)
     integral_lens = compute_integral_len(train_vidlens)
 
-    val_datagen = gen_lstm_batch_random(val_X, val_y, val_vidlens,
-                                        batchsize=len(val_vidlens))
-    test_datagen = gen_lstm_batch_random(test_X, test_y, test_vidlens,
-                                        batchsize=len(test_vidlens))
+    val_datagen = gen_lstm_batch_random(val_X, val_y, val_vidlens, batchsize=len(val_vidlens))
+    test_datagen = gen_lstm_batch_random(test_X, test_y, test_vidlens, batchsize=len(test_vidlens))
 
     # We'll use this "validation set" to periodically check progress
     X_val, y_val, mask_val, idxs_val = next(val_datagen)
@@ -476,10 +487,9 @@ def main():
 
         if val_cost < best_val:
             best_val = val_cost
-            best_conf = val_conf
             best_cr = cr
-            if use_adascale:
-                adascale_param = las.layers.get_all_param_values(adascale, scaling_param=True)
+            if fusiontype == 'adasum':
+                adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
             test_cr, test_conf = evaluate_model(X_test, y_test, mask_test,
                                                 dct_test, X_diff_test, WINDOW_SIZE, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
@@ -494,19 +504,24 @@ def main():
             break
 
         # learning rate decay
-        if epoch >= decay_start - 1:
+        if epoch + 1 >= decay_start:
             lr.set_value(lr.get_value() * lr_decay)
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']
 
     print('Final Model')
     print('CR: {}, val loss: {}, Test CR: {}'.format(best_cr, best_val, test_cr))
-    if use_adascale:
+    if fusiontype == 'adasum':
         print("final scaling params: {}".format(adascale_param))
     print('confusion matrix: ')
-    plot_confusion_matrix(test_conf, phrases, fmt='grid')
+    plot_confusion_matrix(test_conf, phrases, fmt='latex')
     plot_validation_cost(cost_train, cost_val, savefilename='valid_cost')
 
+    if options['write_results']:
+        results_file = options['write_results']
+        with open(results_file, mode='a') as f:
+            f.write('{},{},{}\n'.format(fusiontype, test_cr, best_val))
 
-if __name__== '__main__':
+
+if __name__ == '__main__':
     main()
