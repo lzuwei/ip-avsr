@@ -63,7 +63,7 @@ def extract_weights(ae):
 
 def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
                  diff_shape, diff_var, lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26, use_adascale=False):
+                 output_classes=26, fusiontype='concat'):
 
     bn_weights, bn_biases = extract_weights(ae)
     diff_weights, diff_biases = extract_weights(diff_ae)
@@ -130,14 +130,16 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
 
     # We'll combine the forward and backward layer output by summing.
     # Merge layers take in lists of layers to merge as input.
-    if use_adascale:
-        l_sum1 = AdaptiveElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='adasum1')
-    else:
-        l_sum1 = ElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='sum1')
+    if fusiontype == 'adasum':
+        l_fuse = AdaptiveElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='adasum1')
+    elif fusiontype == 'sum':
+        l_fuse = ElemwiseSumLayer([l_lstm_raw, l_lstm_diff], name='sum1')
+    elif fusiontype == 'concat':
+        l_fuse = ConcatLayer([l_lstm_raw, l_lstm_diff], axis=-1, name='concat')
 
     # l_drop_agg = DropoutLayer(l_sum1, name='dropout_agg')
 
-    f_lstm_agg, b_lstm_agg = create_blstm(l_sum1, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
+    f_lstm_agg, b_lstm_agg = create_blstm(l_fuse, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
     l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
 
 
@@ -172,4 +174,4 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     l_out = DenseLayer(
         l_forward_slice1, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='output')
 
-    return l_out, l_sum1
+    return l_out, l_fuse

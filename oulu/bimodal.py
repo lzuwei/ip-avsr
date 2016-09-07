@@ -6,7 +6,7 @@ import time
 import ConfigParser
 
 import matplotlib
-# matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
 from utils.preprocessing import *
 from utils.plotting_utils import *

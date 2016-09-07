@@ -245,7 +245,7 @@ def parse_options():
     options['config'] = 'config/bimodal_diff_image.ini'
     options['write_results'] = ''
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', help='config file to use, default=config/trimodal.ini')
+    parser.add_argument('--config', help='config file to use, default=config/bimodal_diff_image.ini')
     parser.add_argument('--write_results', help='write results to file')
     args = parser.parse_args()
     if args.config:
@@ -375,8 +375,8 @@ def main():
     print('constructing end to end model...')
     network, adascale = adenet_v2_1.create_model(ae, ae_diff, (None, None, 1144), inputs,
                                                  (None, None), mask,
-                                                 (None, None, 1200), inputs_diff,
-                                                 250, window, 26, fusiontype)
+                                                 (None, None, 1144), inputs_diff,
+                                                 250, window, 10, fusiontype)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')

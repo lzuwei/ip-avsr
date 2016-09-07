@@ -289,7 +289,9 @@ def main():
         dbn.initialize()
         dbn.fit(train_X, train_X)
         recon = dbn.predict(test_X)
-        visualize_reconstruction(test_X[800:864], recon[800:864], shape=(26, 44))
+        visualize_reconstruction(reorder_data(test_X[800:864], (26, 44)),
+                                 reorder_data(recon[800:864], (26, 44)),
+                                 shape=(26, 44))
 
     if save_finetune:
         pickle.dump(dbn, open(ae_finetuned, 'wb'))
@@ -298,15 +300,19 @@ def main():
         print('loading pre-trained encoding layers...')
         dbn = pickle.load(open(ae_finetuned, 'rb'))
         dbn.initialize()
+        # recon = dbn.predict(test_X)
+        # visualize_reconstruction(reorder_data(test_X[800:864], (26, 44)),
+        #                         reorder_data(recon[800:864], (26, 44)),
+        #                         shape=(26, 44))
 
     encoder = extract_encoder(dbn)
     train_X = encoder.predict(train_X)
     val_X = encoder.predict(val_X)
     test_X = encoder.predict(test_X)
 
-    train_X = concat_first_second_deltas(train_X, train_vidlens)
-    val_X = concat_first_second_deltas(val_X, val_vidlens)
-    test_X = concat_first_second_deltas(test_X, test_vidlens)
+    # train_X = concat_first_second_deltas(train_X, train_vidlens)
+    # val_X = concat_first_second_deltas(val_X, val_vidlens)
+    # test_X = concat_first_second_deltas(test_X, test_vidlens)
 
     # featurewise normalize
     train_X, mean, std = featurewise_normalize_sequence(train_X)
@@ -332,7 +338,7 @@ def main():
     lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing lstm classifier...')
-    network = lstm_classifier_baseline.create_model((None, None, 150), inputs,
+    network = lstm_classifier_baseline.create_model((None, None, 50), inputs,
                                                     (None, None), mask,
                                                     lstm_units, output_units)
 
@@ -341,7 +347,8 @@ def main():
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
+    updates = adadelta(cost, all_params, learning_rate=lr)
+    # updates = las.updates.apply_momentum(sgd(cost, all_params, learning_rate=lr), all_params, 0.1)
 
     use_max_constraint = False
     if use_max_constraint:
