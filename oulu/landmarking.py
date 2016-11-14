@@ -14,7 +14,7 @@ from menpofit.aam import HolisticAAM, LucasKanadeAAMFitter, ModifiedAlternatingI
 from menpowidgets import visualize_images
 
 # constants, change according to system
-OULU_DIR = '/Volumes/New Volume/Thesis/ouluvs2/'
+OULU_DIR = '/Volumes/Alienware 5/Thesis/ouluvs2-missing-vid/'
 FACE_MODEL_PATH = '../config/shape_predictor_68_face_landmarks.dat'
 EXT = ['.mp4', '.mov', '.mpg']
 
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     files.sort()
     fit_image.detect = load_dlib_frontal_face_detector()
     fit_image.fitter = DlibWrapper(FACE_MODEL_PATH)
-    files = files[3200:]  # modify to adjust what to process
+    # files = files[3200:]  # modify to adjust what to process
     for i, video in enumerate(files):
         print('[{}/{}] - '.format(i + 1, len(files)), end='')
         basename = os.path.basename(video)

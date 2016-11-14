@@ -42,6 +42,7 @@ def diff_image(data):
     # realign to 'C' Format
     X = reorder_data(X, (26, 44))
     X = compute_diff_images(X, vidlens)
+    visualize_images(X[700:764], shape=(26, 44))
     data['dataMatrix'] = X
     save_mat(data, 'data/allMouthROIsDiffImage_frontal.mat')
 
@@ -50,16 +51,27 @@ def parse_options():
     options = dict()
     options['operation'] = ''
     parser = argparse.ArgumentParser()
-    parser.add_argument('--operation', help='remove_mean, diff_image')
+    parser.add_argument('--operation', help='remove_mean, diff_image, normalize')
     args = parser.parse_args()
     if args.operation:
         options['operation'] = args.operation
     return options
 
 
+def normalize(data):
+    X = data['dataMatrix'].astype('float32')
+    # realign to 'C' Format
+    X = reorder_data(X, (26, 44))
+    visualize_images(X[700:764], shape=(26, 44))
+    X = normalize_input(X)
+    visualize_images(X[700:764], shape=(26, 44))
+
+
 def main():
     options = parse_options()
     data = load_mat_file('data/allMouthROIsResized_frontal.mat')
+    if options['operation'] == 'normalize':
+        normalize(data)
     if options['operation'] == 'remove_mean':
         remove_mean(data)
     elif options['operation'] == 'diff_image':

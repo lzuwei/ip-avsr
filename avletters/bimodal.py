@@ -334,7 +334,9 @@ def main():
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
+    # updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
+    updates = las.updates.sgd(cost, all_params, learning_rate=lr)
+    updates = las.updates.apply_momentum(updates, all_params, momentum=0.9)
     # updates = las.updates.adam(cost, all_params, learning_rate=lr)
 
     use_max_constraint = False
@@ -361,7 +363,7 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 25
+    NUM_EPOCHS = 100
     EPOCH_SIZE = 20
     BATCH_SIZE = 26
     WINDOW_SIZE = 9

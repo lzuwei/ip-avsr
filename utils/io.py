@@ -1,5 +1,6 @@
 import sys
 import scipy.io as sio
+import lasagne as las
 sys.path.insert(0, '../')
 try:
     import cPickle as pickle
@@ -27,3 +28,14 @@ def save_model(model, path):
 
 def load_model(path):
     return pickle.load(open(path, 'rb'))
+
+
+def save_model_params(network, path):
+    all_param_values = las.layers.get_all_param_values(network)
+    pickle.dump(all_param_values, open(path, 'wb'))
+
+
+def load_model_params(network, path):
+    all_param_values = pickle.load(open(path, 'rb'))
+    las.layers.set_all_param_values(network, all_param_values)
+    return network

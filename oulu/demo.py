@@ -1,4 +1,6 @@
 from __future__ import print_function
+import numpy as np
+import cv2
 import sys
 sys.path.insert(0, '../')
 import pickle
@@ -114,7 +116,7 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test_ids):
+def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test_ids, target_filenames):
     """
     Splits the data into training and testing sets
     :param X: input X
@@ -126,6 +128,7 @@ def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test
     :param train_ids: list of subject ids used for training
     :param val_ids: list of subject ids used for validation
     :param test_ids: list of subject ids used for testing
+    :param target_filenames: list of target video filenames
     :return: split data
     """
     # construct a subjects data matrix offset
@@ -150,6 +153,9 @@ def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test
     train_subjects = np.empty((0,), dtype='int')
     val_subjects = np.empty((0,), dtype='int')
     test_subjects = np.empty((0,), dtype='int')
+    train_filenames = list()
+    val_filenames = list()
+    test_filenames = list()
     previous_subject = 1
     subject_video_count = 0
     current_video_idx = 0
@@ -175,6 +181,7 @@ def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test
                 train_dct = np.concatenate((train_dct, dct[current_data_idx:end_data_idx]))
                 train_vidlens = np.concatenate((train_vidlens, video_lens[current_video_idx:end_video_idx]))
                 train_subjects = np.concatenate((train_subjects, subjects[current_video_idx:end_video_idx]))
+                train_filenames = train_filenames + target_filenames[current_video_idx:end_video_idx]
             elif previous_subject in val_ids:
                 val_X = np.concatenate((val_X, X[current_data_idx:end_data_idx]))
                 val_y = np.concatenate((val_y, y[current_data_idx:end_data_idx]))
@@ -182,6 +189,7 @@ def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test
                 val_dct = np.concatenate((val_dct, dct[current_data_idx:end_data_idx]))
                 val_vidlens = np.concatenate((val_vidlens, video_lens[current_video_idx:end_video_idx]))
                 val_subjects = np.concatenate((val_subjects, subjects[current_video_idx:end_video_idx]))
+                val_filenames = val_filenames + target_filenames[current_video_idx:end_video_idx]
             else:
                 test_X = np.concatenate((test_X, X[current_data_idx:end_data_idx]))
                 test_y = np.concatenate((test_y, y[current_data_idx:end_data_idx]))
@@ -189,14 +197,15 @@ def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test
                 test_X_diff = np.concatenate((test_X_diff, X_diff[current_data_idx:end_data_idx]))
                 test_vidlens = np.concatenate((test_vidlens, video_lens[current_video_idx:end_video_idx]))
                 test_subjects = np.concatenate((test_subjects, subjects[current_video_idx:end_video_idx]))
+                test_filenames = test_filenames + target_filenames[current_video_idx:end_video_idx]
             previous_subject = subject
             current_video_idx = end_video_idx
             current_data_idx = end_data_idx
             subject_video_count = 1
             populate = False
-    return train_X, train_y, train_dct, train_X_diff, train_vidlens, train_subjects,\
-           val_X, val_y, val_dct, val_X_diff, val_vidlens, val_subjects,\
-           test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects
+    return train_X, train_y, train_dct, train_X_diff, train_vidlens, train_subjects, train_filenames, \
+           val_X, val_y, val_dct, val_X_diff, val_vidlens, val_subjects, val_filenames, \
+           test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects, test_filenames
 
 
 def read_data_split_file(path, sep=','):
@@ -239,6 +248,12 @@ def evaluate_model(X_val, y_val, mask_val, dct_val, X_diff_val, window_size, eva
         confusion_matrix[target, ix[i]] += 1
 
     return classification_rate, confusion_matrix
+
+
+def get_phrase(idx):
+    phrases = ['Excuse me', 'Good bye', 'Hello', 'How are you', 'Nice to meet you',
+                'See you', 'I am sorry', 'Thank you', 'Have a good time', 'You are welcome']
+    return phrases[idx]
 
 
 def parse_options():
@@ -285,6 +300,11 @@ def main():
     load_finetune = config.getboolean('training', 'load_finetune')
     load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
     savemodel = config.getboolean('training', 'savemodel')
+    t = data['filenamesVec']
+    target_filenames = list()
+    for r in t:
+        for j in r:
+            target_filenames.append(str(j[0]))
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -319,10 +339,11 @@ def main():
     print('Train: {}'.format(train_subject_ids))
     print('Validation: {}'.format(val_subject_ids))
     print('Test: {}'.format(test_subject_ids))
-    train_X, train_y, train_dct, train_X_diff, train_vidlens, train_subjects, \
-    val_X, val_y, val_dct, val_X_diff, val_vidlens, val_subjects, \
-    test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects = \
-        split_data(X, y, dct_feats, X_diff, subjects, video_lens, train_subject_ids, val_subject_ids, test_subject_ids)
+    train_X, train_y, train_dct, train_X_diff, train_vidlens, train_subjects, train_filenames, \
+    val_X, val_y, val_dct, val_X_diff, val_vidlens, val_subjects, val_filenames, \
+    test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects, test_filenames = \
+        split_data(X, y, dct_feats, X_diff, subjects, video_lens, train_subject_ids,
+                   val_subject_ids, test_subject_ids, target_filenames)
 
     assert train_X.shape[0] + val_X.shape[0] + test_X.shape[0] == len(X)
     assert train_y.shape[0] + val_y.shape[0] + test_y.shape[0] == len(y)
@@ -338,15 +359,12 @@ def main():
     val_dct = (val_dct - dct_mean) / dct_std
     test_dct = (test_dct - dct_mean) / dct_std
 
-    if do_finetune:
-        print('performing finetuning on pretrained encoder: {}'.format(ae_pretrained))
-        ae = load_dbn(ae_pretrained)
-        ae.initialize()
-        ae.fit(train_X, train_X)
-
-    if save_finetune:
-        print('saving finetuned encoder: {}...'.format(ae_finetuned))
-        pickle.dump(ae, open(ae_finetuned, 'wb'))
+    # IMPT: the encoder was trained with fortan ordered images, so to visualize
+    # convert all the images to C order using reshape_images_order()
+    # output = dbn.predict(test_X)
+    # test_X = reshape_images_order(test_X, (26, 44))
+    # output = reshape_images_order(output, (26, 44))
+    # visualize_reconstruction(test_X[:36, :], output[:36, :], shape=(26, 44))
 
     if load_finetune:
         print('loading finetuned encoder: {}...'.format(ae_finetuned))
@@ -358,77 +376,40 @@ def main():
         ae_diff = pickle.load(open(ae_finetuned_diff, 'rb'))
         ae_diff.initialize()
 
-    # IMPT: the encoder was trained with fortan ordered images, so to visualize
-    # convert all the images to C order using reshape_images_order()
-    # output = dbn.predict(test_X)
-    # test_X = reshape_images_order(test_X, (26, 44))
-    # output = reshape_images_order(output, (26, 44))
-    # visualize_reconstruction(test_X[:36, :], output[:36, :], shape=(26, 44))
-
     window = T.iscalar('theta')
     dct = T.tensor3('dct', dtype='float32')
     inputs = T.tensor3('inputs', dtype='float32')
     inputs_diff = T.tensor3('inputs_diff', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
-    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
-    print('constructing end to end model...')
+    print('loading end to end model...')
     network, l_fuse = adenet_v3.create_model(ae, ae_diff, (None, None, 1144), inputs,
-                                               (None, None), mask,
-                                               (None, None, 90), dct,
-                                               (None, None, 1144), inputs_diff,
-                                               250, window, 10, fusiontype)
+                                             (None, None), mask,
+                                             (None, None, 90), dct,
+                                             (None, None, 1144), inputs_diff,
+                                             250, window, 10, fusiontype)
+    all_param_values = load_model('models/3stream.dat')
+    all_params = las.layers.get_all_params(network)
+    for p, v in zip(all_params, all_param_values):
+        p.set_value(v)
 
     print_network(network)
-    # draw_to_file(las.layers.get_all_layers(network), 'network.png')
     print('compiling model...')
-    predictions = las.layers.get_output(network, deterministic=False)
-    all_params = las.layers.get_all_params(network, trainable=True)
-    cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = adadelta(cost, all_params, learning_rate=lr)
-    # updates = adagrad(cost, all_params, learning_rate=lr)
 
-    use_max_constraint = False
-    if use_max_constraint:
-        MAX_NORM = 4
-        for param in las.layers.get_all_params(network, regularizable=True):
-            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
-                updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
-
+    '''
     train = theano.function(
         [inputs, targets, mask, dct, inputs_diff, window],
         cost, updates=updates, allow_input_downcast=True)
     compute_train_cost = theano.function([inputs, targets, mask, dct, inputs_diff, window],
                                          cost, allow_input_downcast=True)
 
+    '''
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
-    compute_test_cost = theano.function(
-        [inputs, targets, mask, dct, inputs_diff, window], test_cost, allow_input_downcast=True)
-
     val_fn = theano.function([inputs, mask, dct, inputs_diff, window], test_predictions, allow_input_downcast=True)
 
-    # We'll train the network with 10 epochs of 30 minibatches each
-    print('begin training...')
-    cost_train = []
-    cost_val = []
-    class_rate = []
-    NUM_EPOCHS = 12
-    EPOCH_SIZE = 120
-    BATCH_SIZE = 10
-    WINDOW_SIZE = 9
-    STRIP_SIZE = 3
-    MAX_LOSS = 0.2
-    VALIDATION_WINDOW = 4
-    val_window = circular_list(VALIDATION_WINDOW)
-    train_strip = np.zeros((STRIP_SIZE,))
-    best_val = float('inf')
-    best_conf = None
-    best_cr = 0.0
-
-    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=BATCH_SIZE)
+    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=10)
     integral_lens = compute_integral_len(train_vidlens)
 
     val_datagen = gen_lstm_batch_random(val_X, val_y, val_vidlens, batchsize=len(val_vidlens))
@@ -446,87 +427,29 @@ def main():
     dct_test = gen_seq_batch_from_idx(test_dct, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
     X_diff_test = gen_seq_batch_from_idx(test_X_diff, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
 
-    def early_stop(cost_window):
-        if len(cost_window) < 2:
-            return False
-        else:
-            curr = cost_window[0]
-            for idx, cost in enumerate(cost_window):
-                if curr < cost or idx == 0:
-                    curr = cost
-                else:
-                    return False
-            return True
+    raw_input("Press Enter to start demo...")
 
-    for epoch in range(NUM_EPOCHS):
-        time_start = time.time()
-        for i in range(EPOCH_SIZE):
-            X, y, m, batch_idxs = next(datagen)
-            d = gen_seq_batch_from_idx(train_dct, batch_idxs,
-                                       train_vidlens, integral_lens, np.max(train_vidlens))
-            X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
-                                            train_vidlens, integral_lens, np.max(train_vidlens))
-            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
-            print(print_str, end='')
-            sys.stdout.flush()
-            train(X, y, m, d, X_diff, WINDOW_SIZE)
-            print('\r', end='')
-        cost = compute_train_cost(X, y, m, d, X_diff, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, X_diff_val, WINDOW_SIZE)
-        cost_train.append(cost)
-        cost_val.append(val_cost)
-        train_strip[epoch % STRIP_SIZE] = cost
-        val_window.push(val_cost)
+    for idx in range(len(X_test)):
+        videofile = '../examples/data/{}'.format(test_filenames[idxs_test[idx]])
+        print('video file: {}'.format(videofile))
+        cap = cv2.VideoCapture(videofile)
 
-        gl = 100 * (cost_val[-1] / np.min(cost_val) - 1)
-        pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
-        pq = gl / pk
-
-        cr, val_conf = evaluate_model(X_val, y_val, mask_val, dct_val, X_diff_val, WINDOW_SIZE, val_fn)
-        class_rate.append(cr)
-
-        if val_cost < best_val:
-            best_val = val_cost
-            best_cr = cr
-            if fusiontype == 'adasum':
-                adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
-            test_cr, test_conf = evaluate_model(X_test, y_test, mask_test,
-                                                dct_test, X_diff_test, WINDOW_SIZE, val_fn)
-            print("Epoch {} train cost = {}, val cost = {}, "
-                  "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
-                  .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))
-        else:
-            print("Epoch {} train cost = {}, val cost = {}, "
-                  "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f} ({:.1f}sec)"
-                  .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
-
-        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
-            break
-
-        # learning rate decay
-        if epoch + 1 >= decay_start:
-            lr.set_value(lr.get_value() * lr_decay)
-
-    phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']
-
-    print('Final Model')
-    print('CR: {}, val loss: {}, Test CR: {}'.format(best_cr, best_val, test_cr))
-    if fusiontype == 'adasum':
-        print("final scaling params: {}".format(adascale_param))
-    print('confusion matrix: ')
-    plot_confusion_matrix(test_conf, phrases, fmt='latex')
-    plot_validation_cost(cost_train, cost_val, savefilename='valid_cost')
-
-    if options['write_results']:
-        results_file = options['write_results']
-        with open(results_file, mode='a') as f:
-            f.write('{},{},{}\n'.format(fusiontype, test_cr, best_val))
-
-    if savemodel:
-        all_params = las.layers.get_all_params(network)
-        all_param_values = [p.get_value() for p in all_params]
-        save_model(all_param_values, 'models/3stream.dat')
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                frame = cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_LINEAR)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                cv2.imshow('frame', gray)
+            else:
+                break
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        pred = val_fn(X_test[idx:idx + 1], mask_test[idx:idx + 1], dct_test[idx:idx + 1], X_diff_test[idx:idx + 1], 9)
+        pred_idx = np.argmax(pred, axis=1)
+        print('Prediction: {}, Target: {}'.format(get_phrase(pred_idx[0]), get_phrase(y_test[idx])))
+        raw_input("Press Enter to continue...")
+        cap.release()
+        cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
