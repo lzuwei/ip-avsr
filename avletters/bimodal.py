@@ -193,15 +193,43 @@ def visualize_confusion(X_val, utterance_no, target, actual):
 def parse_options():
     options = dict()
     options['config'] = 'config/bimodal.ini'
-    options['write_results'] = None
+    options['no_plot'] = False
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='config file to use, default=config/bimodal.ini')
     parser.add_argument('--write_results', help='write results to file')
+    parser.add_argument('--update_rule', help='adadelta, sgdm, sgdnm')
+    parser.add_argument('--learning_rate', help='learning rate')
+    parser.add_argument('--decay_rate', help='learning rate decay')
+    parser.add_argument('--momentum', help='momentum')
+    parser.add_argument('--momentum_schedule', help='eg: 0.9,0.9,0.95,0.99')
+    parser.add_argument('--validation_window', help='validation window length, eg: 6')
+    parser.add_argument('--t1', help='epoch to start learning rate decay, eg: 10')
+    parser.add_argument('--num_epoch', help='number of epochs to run')
+    parser.add_argument('--no_plot', dest='no_plot', action='store_true')
+    parser.set_defaults(no_plot=False)
     args = parser.parse_args()
     if args.config:
         options['config'] = args.config
     if args.write_results:
         options['write_results'] = args.write_results
+    if args.update_rule:
+        options['update_rule'] = args.update_rule
+    if args.learning_rate:
+        options['learning_rate'] = args.learning_rate
+    if args.decay_rate:
+        options['decay_rate'] = args.decay_rate
+    if args.momentum:
+        options['momentum'] = args.momentum
+    if args.momentum_schedule:
+        options['momentum_schedule'] = args.momentum_schedule
+    if args.validation_window:
+        options['validation_window'] = args.validation_window
+    if args.t1:
+        options['t1'] = args.t1
+    if args.num_epoch:
+        options['num_epoch'] = args.num_epoch
+    if args.no_plot:
+        options['no_plot'] = True
     return options
 
 
@@ -225,9 +253,23 @@ def main():
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     fusiontype = config.get('models', 'fusiontype')
-    learning_rate = float(config.get('training', 'learning_rate'))
-    decay_rate = float(config.get('training', 'decay_rate'))
-    decay_start = int(config.get('training', 'decay_start'))
+
+    # capture training parameters
+    update_rule = options['update_rule'] if 'update_rule' in options else config.get('training', 'update_rule')
+    learning_rate = float(options['learning_rate']) \
+        if 'learning_rate' in options else float(config.get('training', 'learning_rate'))
+    decay_rate = float(options['decay_rate']) if 'decay_rate' in options else float(config.get('training', 'decay_rate'))
+    decay_start = int(options['decay_start']) if 'decay_start' in options else int(config.get('training', 'decay_start'))
+    validation_window = int(options['validation_window']) \
+        if 'validation_window' in options else int(config.get('training', 'validation_window'))
+    t1 = int(options['t1']) if 't1' in options else int(config.get('training', 't1'))
+    num_epoch = int(options['num_epoch']) if 'num_epoch' in options else int(config.get('training', 'num_epoch'))
+
+    if update_rule == 'sgdm' or update_rule == 'sgdnm':
+        momentum = float(options['momentum']) if 'momentum' in options else float(config.get('training', 'momentum'))
+        momentum_schedule = options['momentum_schedule'] \
+            if 'momentum_schedule' in options else config.get('training', 'momentum_schedule')
+        mm_schedule = [float(m) for m in momentum_schedule.split(',')]
 
     # create the necessary variable mappings
     data_matrix = data['dataMatrix'].astype('float32')
@@ -300,51 +342,30 @@ def main():
     lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
     lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
+    if update_rule == 'sgdm' or update_rule == 'sgdnm':
+        mm = theano.shared(np.array(momentum, dtype=theano.config.floatX), name='momentum')
+
     print('constructing end to end model...')
-    '''
-    network, l_fuse = adenet_v1.create_model(dbn, (None, None, 1200), inputs,
-                                             (None, None), mask,
-                                             (None, None, 90), dct,
-                                             250, window)
 
-    network = deltanet.create_model(dbn, (None, None, 1200), inputs,
-                                    (None, None), mask,
-                                    250, window)
-
-    '''
     network, l_fuse = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
                                              (None, None), mask,
                                              (None, None, 90), dct,
                                              250, window, 26, fusiontype)
 
-    '''
-    network = adenet_v2_1.create_model(dbn, (None, None, 1200), inputs,
-                                       (None, None), mask,
-                                       (None, None, 90), dct,
-                                       250, window)
-
-    network, adascale = adenet_v4.create_model(dbn, (None, None, 1200), inputs,
-                                               (None, None), mask,
-                                               (None, None, 90), dct,
-                                               250, window)
-    '''
     print_network(network)
     draw_to_file(las.layers.get_all_layers(network), 'network.png')
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    # updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
-    updates = las.updates.sgd(cost, all_params, learning_rate=lr)
-    updates = las.updates.apply_momentum(updates, all_params, momentum=0.9)
-    # updates = las.updates.adam(cost, all_params, learning_rate=lr)
-
-    use_max_constraint = False
-    if use_max_constraint:
-        MAX_NORM = 4
-        for param in las.layers.get_all_params(network, regularizable=True):
-            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
-                updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
+    if update_rule == 'adadelta':
+        updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
+    if update_rule == 'sgdm':
+        updates = las.updates.sgd(cost, all_params, learning_rate=lr)
+        updates = las.updates.apply_momentum(updates, all_params, momentum=mm)
+    if update_rule == 'sgdnm':
+        updates = las.updates.sgd(cost, all_params, learning_rate=lr)
+        updates = las.updates.apply_nesterov_momentum(updates, all_params, momentum=mm)
 
     train = theano.function(
         [inputs, targets, mask, dct, window],
@@ -363,14 +384,11 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 100
     EPOCH_SIZE = 20
     BATCH_SIZE = 26
     WINDOW_SIZE = 9
     STRIP_SIZE = 3
-    MAX_LOSS = 0.2
-    VALIDATION_WINDOW = 4
-    val_window = circular_list(VALIDATION_WINDOW)
+    val_window = circular_list(validation_window)
     train_strip = np.zeros((STRIP_SIZE,))
     best_val = float('inf')
     best_conf = None
@@ -400,14 +418,30 @@ def main():
                     return False
             return True
 
-    for epoch in range(NUM_EPOCHS):
+    def early_stop2(cost_window, min_val_cost, threshold):
+        if len(cost_window) < 2:
+            return False
+        else:
+            count = 0
+            for cost in cost_window:
+                if cost > min_val_cost:
+                    count += 1
+                if count == threshold:
+                    return True
+
+    for epoch in range(num_epoch):
         time_start = time.time()
         for i in range(EPOCH_SIZE):
             X, y, m, batch_idxs = next(datagen)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
-            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
+            if update_rule == 'adadelta':
+                print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f} with adadelta'.format(
+                    epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
+            if update_rule == 'sgdm' or update_rule == 'sgdnm':
+                print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}, ' \
+                            'momentum = {:.4f} with sgdm'.format(
+                    epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()), float(mm.get_value()))
             print(print_str, end='')
             sys.stdout.flush()
             train(X, y, m, d, WINDOW_SIZE)
@@ -434,8 +468,13 @@ def main():
             best_val = val_cost
             best_conf = val_conf
             best_cr = cr
+        else:
+            if epoch >= t1 and (update_rule == 'sgdm' or update_rule == 'sgdnm'):
+                lr.set_value(max(lr.get_value() * lr_decay, 0.001))
+                if mm_schedule:
+                    mm.set_value(mm_schedule.pop(0))
 
-        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
+        if epoch >= validation_window and early_stop2(val_window, best_val, validation_window):
             break
 
         # learning rate decay
@@ -453,20 +492,24 @@ def main():
         adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
         print("final scaling params: {}".format(adascale_param))
     print('confusion matrix: ')
-    plot_confusion_matrix(best_conf, letters, fmt='latex')
-    plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost')
+    if not options['no_plot']:
+        plot_confusion_matrix(best_conf, letters, fmt='latex')
+        plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost')
 
-    '''
-    datagen2 = gen_lstm_batch_seq(test_data, test_targets, test_vidlen_vec,
-                                  batchsize=len(test_vidlen_vec))
-    X_val, y_val, mask_val = next(datagen2)
-    confusions = map_confusion(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
-    print(confusions)
-    '''
-
-    if options['write_results']:
+    if 'write_results' in options:
         results_file = options['write_results']
         with open(results_file, mode='a') as f:
+            f.write('{},{},{},{},{},{},{}\n'.format(update_rule, learning_rate, decay_rate, momentum,
+                                                    decay_start, t1, validation_window))
+            s = ','.join([str(v) for v in cost_train])
+            f.write('{}\n'.format(s))
+
+            s = ','.join([str(v) for v in cost_val])
+            f.write('{}\n'.format(s))
+
+            s = ','.join([str(v) for v in class_rate])
+            f.write('{}\n'.format(s))
+
             f.write('{},{},{}\n'.format(fusiontype, best_cr, best_val))
 
 if __name__ == '__main__':
