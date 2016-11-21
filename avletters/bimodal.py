@@ -458,12 +458,12 @@ def main():
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
             if update_rule == 'adadelta':
-                print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f} with adadelta'.format(
-                    epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
+                print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f} with {}'.format(
+                    epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()), update_rule)
             if update_rule == 'sgdm' or update_rule == 'sgdnm':
                 print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}, ' \
-                            'momentum = {:.4f} with sgdm'.format(
-                    epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()), float(mm.get_value()))
+                            'momentum = {:.4f} with {}'.format(
+                    epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()), float(mm.get_value()), update_rule)
             print(print_str, end='')
             sys.stdout.flush()
             train(X, y, m, d, WINDOW_SIZE)
