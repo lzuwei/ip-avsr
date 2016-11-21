@@ -264,18 +264,19 @@ def main():
     # capture training parameters
     update_rule = options['update_rule'] if 'update_rule' in options else config.get('training', 'update_rule')
     learning_rate = float(options['learning_rate']) \
-        if 'learning_rate' in options else float(config.get('training', 'learning_rate'))
-    decay_rate = float(options['decay_rate']) if 'decay_rate' in options else float(config.get('training', 'decay_rate'))
-    decay_start = int(options['decay_start']) if 'decay_start' in options else int(config.get('training', 'decay_start'))
+        if 'learning_rate' in options else config.getfloat('training', 'learning_rate')
+    decay_rate = float(options['decay_rate']) if 'decay_rate' in options else config.getfloat('training', 'decay_rate')
+    decay_start = int(options['decay_start']) if 'decay_start' in options else config.getint('training', 'decay_start')
     validation_window = int(options['validation_window']) \
-        if 'validation_window' in options else int(config.get('training', 'validation_window'))
-    t1 = int(options['t1']) if 't1' in options else int(config.get('training', 't1'))
-    num_epoch = int(options['num_epoch']) if 'num_epoch' in options else int(config.get('training', 'num_epoch'))
+        if 'validation_window' in options else config.getint('training', 'validation_window')
+    t1 = int(options['t1']) if 't1' in options else config.getint('training', 't1')
+    num_epoch = int(options['num_epoch']) if 'num_epoch' in options else config.getint('training', 'num_epoch')
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
-    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.get('training', 'use_peepholes')
+    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
+                                                                                                  'use_peepholes')
 
     if update_rule == 'sgdm' or update_rule == 'sgdnm':
-        momentum = float(options['momentum']) if 'momentum' in options else float(config.get('training', 'momentum'))
+        momentum = float(options['momentum']) if 'momentum' in options else config.getfloat('training', 'momentum')
         momentum_schedule = options['momentum_schedule'] \
             if 'momentum_schedule' in options else config.get('training', 'momentum_schedule')
         mm_schedule = [float(m) for m in momentum_schedule.split(',')]
