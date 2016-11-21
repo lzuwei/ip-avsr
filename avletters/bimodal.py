@@ -204,6 +204,7 @@ def parse_options():
     parser.add_argument('--momentum_schedule', help='eg: 0.9,0.9,0.95,0.99')
     parser.add_argument('--validation_window', help='validation window length, eg: 6')
     parser.add_argument('--t1', help='epoch to start learning rate decay, eg: 10')
+    parser.add_argument('--weight_init', help='norm,glorot,ortho,uniform')
     parser.add_argument('--num_epoch', help='number of epochs to run')
     parser.add_argument('--no_plot', dest='no_plot', action='store_true')
     parser.set_defaults(no_plot=False)
@@ -226,6 +227,8 @@ def parse_options():
         options['validation_window'] = args.validation_window
     if args.t1:
         options['t1'] = args.t1
+    if args.weight_init:
+        options['weight_init'] = args.weight_init
     if args.num_epoch:
         options['num_epoch'] = args.num_epoch
     if args.no_plot:
@@ -264,12 +267,23 @@ def main():
         if 'validation_window' in options else int(config.get('training', 'validation_window'))
     t1 = int(options['t1']) if 't1' in options else int(config.get('training', 't1'))
     num_epoch = int(options['num_epoch']) if 'num_epoch' in options else int(config.get('training', 'num_epoch'))
+    weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
 
     if update_rule == 'sgdm' or update_rule == 'sgdnm':
         momentum = float(options['momentum']) if 'momentum' in options else float(config.get('training', 'momentum'))
         momentum_schedule = options['momentum_schedule'] \
             if 'momentum_schedule' in options else config.get('training', 'momentum_schedule')
         mm_schedule = [float(m) for m in momentum_schedule.split(',')]
+
+    weight_init_fn = las.init.Orthogonal()
+    if weight_init == 'glorot':
+        weight_init_fn = las.init.GlorotUniform()
+    if weight_init == 'norm':
+        weight_init_fn = las.init.Normal(0.1)
+    if weight_init == 'uniform':
+        weight_init_fn = las.init.Uniform()
+    if weight_init == 'ortho':
+        weight_init_fn = las.init.Orthogonal()
 
     # create the necessary variable mappings
     data_matrix = data['dataMatrix'].astype('float32')
@@ -350,7 +364,7 @@ def main():
     network, l_fuse = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
                                              (None, None), mask,
                                              (None, None, 90), dct,
-                                             250, window, 26, fusiontype)
+                                             250, window, 26, fusiontype, w_init_fn=weight_init_fn)
 
     print_network(network)
     draw_to_file(las.layers.get_all_layers(network), 'network.png')

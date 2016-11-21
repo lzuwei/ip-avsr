@@ -47,7 +47,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
 
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
                  dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26, fusiontype='sum'):
+                 output_classes=26, fusiontype='sum', w_init_fn=las.init.Orthogonal()):
 
     dbn_layers = dbn.get_all_layers()
     weights = []
@@ -62,10 +62,10 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     biases.append(dbn_layers[4].b.astype('float32'))
 
     gate_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
+        W_in=las.init.Orthogonal(), W_hid=w_init_fn,
         b=las.init.Constant(0.))
     cell_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
+        W_in=w_init_fn, W_hid=w_init_fn,
         # Setting W_cell to None denotes that no cell connection will be used.
         W_cell=None, b=las.init.Constant(0.),
         # By convention, the cell nonlinearity is tanh in an LSTM.

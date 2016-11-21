@@ -22,3 +22,4 @@ examples/
 # png files
 *.png
 *.sh
+*.csv
