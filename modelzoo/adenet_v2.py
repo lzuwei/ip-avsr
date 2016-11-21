@@ -17,7 +17,7 @@ def create_pretrained_encoder(weights, biases, incoming):
     return l_4
 
 
-def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name):
+def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=True):
 
     if cell_parameters is None:
         cell_parameters = Gate()
@@ -25,7 +25,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
         gate_parameters = Gate()
 
     l_lstm = LSTMLayer(
-        l_incoming, hidden_units,
+        l_incoming, hidden_units, peepholes=use_peepholes,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
@@ -37,7 +37,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
     # The "backwards" layer is the same as the first,
     # except that the backwards argument is set to True.
     l_lstm_back = LSTMLayer(
-        l_incoming, hidden_units, ingate=gate_parameters,
+        l_incoming, hidden_units, ingate=gate_parameters, peepholes=use_peepholes,
         mask_input=l_mask, forgetgate=gate_parameters,
         cell=cell_parameters, outgate=gate_parameters,
         learn_init=True, grad_clipping=5., backwards=True, name='b_{}'.format(name))
@@ -47,7 +47,8 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
 
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
                  dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26, fusiontype='sum', w_init_fn=las.init.Orthogonal()):
+                 output_classes=26, fusiontype='sum', w_init_fn=las.init.Orthogonal(),
+                 use_peepholes=True):
 
     dbn_layers = dbn.get_all_layers()
     weights = []
@@ -85,7 +86,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
 
     l_lstm_bn = LSTMLayer(
-        l_delta, lstm_size,
+        l_delta, lstm_size, peepholes=use_peepholes,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
@@ -95,7 +96,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
         learn_init=True, grad_clipping=5., name='lstm_bn')
 
     l_lstm_dct = LSTMLayer(
-        l_dct, lstm_size,
+        l_dct, lstm_size, peepholes=use_peepholes,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate

@@ -206,8 +206,10 @@ def parse_options():
     parser.add_argument('--t1', help='epoch to start learning rate decay, eg: 10')
     parser.add_argument('--weight_init', help='norm,glorot,ortho,uniform')
     parser.add_argument('--num_epoch', help='number of epochs to run')
-    parser.add_argument('--no_plot', dest='no_plot', action='store_true')
+    parser.add_argument('--use_peepholes', help='use peephole connections in LSTM')
+    parser.add_argument('--no_plot', dest='no_plot', action='store_true', help='disable plots')
     parser.set_defaults(no_plot=False)
+    parser.set_defaults(use_peepholes=True)
     args = parser.parse_args()
     if args.config:
         options['config'] = args.config
@@ -233,6 +235,8 @@ def parse_options():
         options['num_epoch'] = args.num_epoch
     if args.no_plot:
         options['no_plot'] = True
+    if args.use_peepholes:
+        options['use_peepholes'] = args.use_peepholes
     return options
 
 
@@ -268,6 +272,7 @@ def main():
     t1 = int(options['t1']) if 't1' in options else int(config.get('training', 't1'))
     num_epoch = int(options['num_epoch']) if 'num_epoch' in options else int(config.get('training', 'num_epoch'))
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
+    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.get('training', 'use_peepholes')
 
     if update_rule == 'sgdm' or update_rule == 'sgdnm':
         momentum = float(options['momentum']) if 'momentum' in options else float(config.get('training', 'momentum'))
@@ -364,7 +369,9 @@ def main():
     network, l_fuse = adenet_v2.create_model(dbn, (None, None, 1200), inputs,
                                              (None, None), mask,
                                              (None, None, 90), dct,
-                                             250, window, 26, fusiontype, w_init_fn=weight_init_fn)
+                                             250, window, 26, fusiontype,
+                                             w_init_fn=weight_init_fn,
+                                             use_peepholes=use_peepholes)
 
     print_network(network)
     draw_to_file(las.layers.get_all_layers(network), 'network.png')
