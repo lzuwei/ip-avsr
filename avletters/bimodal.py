@@ -513,8 +513,8 @@ def main():
     if 'write_results' in options:
         results_file = options['write_results']
         with open(results_file, mode='a') as f:
-            f.write('{},{},{},{},{},{},{}\n'.format(update_rule, learning_rate, decay_rate, momentum,
-                                                    decay_start, t1, validation_window))
+            f.write('{},{},{},{},{},{},{},{}\n'.format(update_rule, learning_rate, decay_rate, momentum,
+                                                       decay_start, t1, validation_window, weight_init))
             s = ','.join([str(v) for v in cost_train])
             f.write('{}\n'.format(s))
 
