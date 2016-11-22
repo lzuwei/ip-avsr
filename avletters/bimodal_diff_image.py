@@ -197,7 +197,7 @@ def main():
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
-    use_adascale = config.getboolean('models', 'use_adascale')
+    fusiontype = config.getboolean('models', 'fusiontype')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
@@ -284,13 +284,13 @@ def main():
         network, adascale = adenet_v6.create_model(ae, diff_ae, (None, None, 1200), inputs_raw,
                                                    (None, None), mask,
                                                    (None, None, 1200), inputs_diff,
-                                                   250, window, 26, use_adascale)
+                                                   250, window, 26, fusiontype)
 
     if model == 'adenet_v2_1':
         network, adascale = adenet_v2_1.create_model(ae, diff_ae, (None, None, 1200), inputs_raw,
                                                      (None, None), mask,
                                                      (None, None, 1200), inputs_diff,
-                                                     250, window, 26, use_adascale)
+                                                     250, window, 26, fusiontype)
 
     print_network(network)
     print('compiling model...')
@@ -395,7 +395,7 @@ def main():
             best_val = val_cost
             best_conf = val_conf
             best_cr = cr
-            if use_adascale:
+            if fusiontype == 'adascale':
                 adascale_param = las.layers.get_all_param_values(adascale, scaling_param=True)
 
         if epoch >= VALIDATION_WINDOW and early_stop(val_window):
@@ -412,7 +412,7 @@ def main():
 
     print('Best Model')
     print('classification rate: {}, validation loss: {}'.format(best_cr, best_val))
-    if use_adascale:
+    if fusiontype == 'adascale':
         print("final scaling params: {}".format(adascale_param))
     print('confusion matrix: ')
     plot_confusion_matrix(best_conf, letters, fmt='grid')
