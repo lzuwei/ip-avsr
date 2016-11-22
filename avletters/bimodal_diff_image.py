@@ -197,7 +197,7 @@ def main():
     ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
-    fusiontype = config.getboolean('models', 'fusiontype')
+    fusiontype = config.get('models', 'fusiontype')
     learning_rate = float(config.get('training', 'learning_rate'))
     decay_rate = float(config.get('training', 'decay_rate'))
     decay_start = int(config.get('training', 'decay_start'))
