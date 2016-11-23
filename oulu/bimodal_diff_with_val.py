@@ -26,7 +26,7 @@ import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
 from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
-from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad
+from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad, adam
 from lasagne.objectives import squared_error
 
 from modelzoo import adenet_v3, adenet_v2_1
@@ -384,8 +384,8 @@ def main():
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = adadelta(cost, all_params, learning_rate=lr)
-    # updates = adagrad(cost, all_params, learning_rate=lr)
+    # updates = adadelta(cost, all_params, learning_rate=lr)
+    updates = adam(cost, all_params)
 
     use_max_constraint = False
     if use_max_constraint:

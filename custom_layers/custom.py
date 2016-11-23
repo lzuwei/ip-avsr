@@ -48,6 +48,27 @@ class DeltaLayer(Layer):
         return input_shape[0], input_shape[1], input_shape[-1] * 3
 
 
+class MajorityVotingLayer(Layer):
+    """
+    Layer to compute the majority votes across multiple outputs
+    Computes the argmax for each output prediction
+    Casts a vote for each prediction and returns the combined votes as
+    a single consolidated output
+    """
+    def __init__(self, incoming, window, **kwargs):
+        super(MajorityVotingLayer, self).__init__(incoming, **kwargs)
+
+    def get_output_for(self, input, **kwargs):
+        votes = theano.tensor.zeros(input.shape()[1:])
+        for p in input:
+            idx = theano.tensor.argmax(p)
+            votes[idx] += 1
+        return votes
+
+    def get_output_shape_for(self, input_shape):
+        return input_shape[1:]
+
+
 class AdaptiveElemwiseSumLayer(ElemwiseMergeLayer):
     """
     This layer performs an elementwise sum of its input layers.

@@ -21,6 +21,7 @@ from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
 from utils.draw_net import *
+from utils.regularization import early_stop, early_stop2
 from custom_layers.custom import DeltaLayer
 from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, adenet_v4, adenet_v2_1, adenet_v6
 
@@ -388,6 +389,8 @@ def main():
     if update_rule == 'sgdnm':
         updates = las.updates.sgd(cost, all_params, learning_rate=lr)
         updates = las.updates.apply_nesterov_momentum(updates, all_params, momentum=mm)
+    if update_rule == 'adam':
+        updates = las.updates.adam(cost, all_params)
 
     train = theano.function(
         [inputs, targets, mask, dct, window],
@@ -428,35 +431,15 @@ def main():
 
     # confusions = map_confusion(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
 
-    def early_stop(cost_window):
-        if len(cost_window) < 2:
-            return False
-        else:
-            curr = cost_window[0]
-            for idx, cost in enumerate(cost_window):
-                if curr < cost or idx == 0:
-                    curr = cost
-                else:
-                    return False
-            return True
-
-    def early_stop2(cost_window, min_val_cost, threshold):
-        if len(cost_window) < 2:
-            return False
-        else:
-            count = 0
-            for cost in cost_window:
-                if cost > min_val_cost:
-                    count += 1
-                if count == threshold:
-                    return True
-
     for epoch in range(num_epoch):
         time_start = time.time()
         for i in range(EPOCH_SIZE):
             X, y, m, batch_idxs = next(datagen)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
+            if update_rule == 'adam':
+                print_str = 'Epoch {} batch {}/{}: {} examples with {} using default params'.format(
+                    epoch + 1, i + 1, EPOCH_SIZE, len(X), update_rule)
             if update_rule == 'adadelta':
                 print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f} with {}'.format(
                     epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()), update_rule)

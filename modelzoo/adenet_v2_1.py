@@ -17,7 +17,7 @@ def create_pretrained_encoder(weights, biases, names, incoming):
     return l_4
 
 
-def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name):
+def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=True):
 
     if cell_parameters is None:
         cell_parameters = Gate()
@@ -27,7 +27,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
     l_lstm = LSTMLayer(
         l_incoming, hidden_units,
         # We need to specify a separate input for masks
-        mask_input=l_mask,
+        mask_input=l_mask, peepholes=use_peepholes,
         # Here, we supply the gate parameters for each gate
         ingate=gate_parameters, forgetgate=gate_parameters,
         cell=cell_parameters, outgate=gate_parameters,
@@ -37,7 +37,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
     # The "backwards" layer is the same as the first,
     # except that the backwards argument is set to True.
     l_lstm_back = LSTMLayer(
-        l_incoming, hidden_units, ingate=gate_parameters,
+        l_incoming, hidden_units, ingate=gate_parameters, peepholes=use_peepholes,
         mask_input=l_mask, forgetgate=gate_parameters,
         cell=cell_parameters, outgate=gate_parameters,
         learn_init=True, grad_clipping=5., backwards=True, name='b_{}'.format(name))
@@ -63,16 +63,17 @@ def extract_weights(ae):
 
 def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
                  diff_shape, diff_var, lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26, fusiontype='concat'):
+                 output_classes=26, fusiontype='concat', w_init_fn=las.init.Orthogonal(),
+                 use_peepholes=True):
 
     bn_weights, bn_biases = extract_weights(ae)
     diff_weights, diff_biases = extract_weights(diff_ae)
 
     gate_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
+        W_in=w_init_fn, W_hid=w_init_fn,
         b=las.init.Constant(0.))
     cell_parameters = Gate(
-        W_in=las.init.Orthogonal(), W_hid=las.init.Orthogonal(),
+        W_in=w_init_fn, W_hid=w_init_fn,
         # Setting W_cell to None denotes that no cell connection will be used.
         W_cell=None, b=las.init.Constant(0.),
         # By convention, the cell nonlinearity is tanh in an LSTM.
@@ -109,7 +110,7 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     l_delta_diff = DeltaLayer(l_reshape2_diff, win, name='delta_diff')
 
     l_lstm_raw = LSTMLayer(
-        l_delta_raw, int(lstm_size),
+        l_delta_raw, int(lstm_size), peepholes=use_peepholes,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
@@ -119,7 +120,7 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
         learn_init=True, grad_clipping=5., name='lstm_raw')
 
     l_lstm_diff = LSTMLayer(
-        l_delta_diff, lstm_size,
+        l_delta_diff, lstm_size, peepholes=use_peepholes,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
