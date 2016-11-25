@@ -55,18 +55,51 @@ class MajorityVotingLayer(Layer):
     Casts a vote for each prediction and returns the combined votes as
     a single consolidated output
     """
-    def __init__(self, incoming, window, **kwargs):
+    def __init__(self, incoming, num_classes, **kwargs):
+        """
+        Constructs a Majority voting layer
+        :param incoming: incoming layer
+        :param num_classes: number of classification classes
+        :param kwargs: arguments to pass down
+        """
         super(MajorityVotingLayer, self).__init__(incoming, **kwargs)
+        self.num_classes = num_classes
 
     def get_output_for(self, input, **kwargs):
-        votes = theano.tensor.zeros(input.shape()[1:])
-        for p in input:
-            idx = theano.tensor.argmax(p)
-            votes[idx] += 1
-        return votes
+        s = input.shape
+        votes = T.zeros((s[0], s[-1]), dtype=input.dtype)
+        a = T.argmax(input, axis=-1)
+        # for each class, count number of occurrences across all time steps
+        for idx in range(self.num_classes):
+            count = T.sum(T.eq(a, idx), axis=-1)
+            votes = T.set_subtensor(votes[:, idx], count)
+        return T.nnet.softmax(votes)
 
     def get_output_shape_for(self, input_shape):
-        return input_shape[1:]
+        return input_shape[0], input_shape[-1]
+
+
+class MeanPoolLayer(Layer):
+    """
+    Layer to compute the Mean across the last axis
+    """
+    def __init__(self, incoming, mask, **kwargs):
+        """
+        Constructs a Mean Pooling layer
+        :param incoming: incoming layer
+        :param kwargs: arguments to pass down
+        """
+        super(MeanPoolLayer, self).__init__(incoming, **kwargs)
+        self.mask = mask
+
+    def get_output_for(self, input, **kwargs):
+        mask = self.mask.input_var
+        input = (input * mask).sum(axis=-1)
+        input = input / mask.sum(axis=-1)
+        return input
+
+    def get_output_shape_for(self, input_shape):
+        return input_shape[0], input_shape[-1]
 
 
 class AdaptiveElemwiseSumLayer(ElemwiseMergeLayer):
@@ -120,3 +153,21 @@ class AdaptiveElemwiseSumLayer(ElemwiseMergeLayer):
 
         # pass scaled inputs to the super class for summing
         return super(AdaptiveElemwiseSumLayer, self).get_output_for(inputs, **kwargs)
+
+
+def test_vote():
+    a = [[[1,2,3],[1,2,3],[1,2,3]],
+         [[1,3,1],[1,3,1],[1,3,1]],
+         [[5,0,0],[0,5,0],[0,0,5]],
+         [[1,0,0],[0,1,0],[1,0,0]]]
+    a = np.array(a)
+    s = a.shape
+    votes = np.zeros((s[0], s[-1]))
+    a = np.argmax(a, axis=-1)
+    for i in range(s[0]):
+        for idx in range(s[-1]):
+            t = a[i] == idx
+            count = np.sum(t)
+            votes[i][idx] = count
+
+    return votes
