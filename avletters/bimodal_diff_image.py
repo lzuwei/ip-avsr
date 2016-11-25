@@ -20,7 +20,7 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
-from custom_layers.custom import DeltaLayer
+from custom.custom import DeltaLayer
 from modelzoo import adenet_v6, adenet_v2_1
 
 import numpy as np

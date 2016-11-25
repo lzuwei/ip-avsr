@@ -22,7 +22,7 @@ from utils.datagen import *
 from utils.io import *
 from utils.draw_net import *
 from utils.regularization import early_stop, early_stop2
-from custom_layers.custom import DeltaLayer
+from custom.custom import DeltaLayer
 from modelzoo import adenet_v1, deltanet, adenet_v2, adenet_v3, adenet_v4, adenet_v2_1, adenet_v6
 
 import numpy as np
@@ -198,7 +198,7 @@ def parse_options():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='config file to use, default=config/bimodal.ini')
     parser.add_argument('--write_results', help='write results to file')
-    parser.add_argument('--update_rule', help='adadelta, sgdm, sgdnm')
+    parser.add_argument('--update_rule', help='adadelta, sgdm, sgdnm, adam')
     parser.add_argument('--learning_rate', help='learning rate')
     parser.add_argument('--decay_rate', help='learning rate decay')
     parser.add_argument('--momentum', help='momentum')

@@ -20,7 +20,7 @@ from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
 from utils.draw_net import draw_to_file
-from custom_layers.custom import DeltaLayer
+from custom.custom import DeltaLayer
 from modelzoo import lstm_classifier_baseline
 
 import numpy as np

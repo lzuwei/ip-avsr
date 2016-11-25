@@ -6,7 +6,7 @@ from lasagne.layers import Gate, DropoutLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
 from lasagne.layers import batch_norm, BatchNormLayer
 
-from custom_layers.custom import DeltaLayer, AdaptiveElemwiseSumLayer
+from custom.custom import DeltaLayer, AdaptiveElemwiseSumLayer
 
 
 def create_pretrained_encoder(weights, biases, incoming):

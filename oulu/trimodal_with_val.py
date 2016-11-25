@@ -18,7 +18,7 @@ from utils.draw_net import draw_to_file
 
 import theano.tensor as T
 import theano
-from custom_layers.custom import DeltaLayer
+from custom.custom import DeltaLayer
 from nolearn.lasagne import NeuralNet
 
 import lasagne as las

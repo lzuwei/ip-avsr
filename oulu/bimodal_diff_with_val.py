@@ -14,11 +14,12 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
+from utils.regularization import early_stop
 from utils.draw_net import draw_to_file
 
 import theano.tensor as T
 import theano
-from custom_layers.custom import DeltaLayer
+from custom.custom import test_vote
 from nolearn.lasagne import NeuralNet
 
 import lasagne as las
@@ -29,7 +30,7 @@ from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad, adam
 from lasagne.objectives import squared_error
 
-from modelzoo import adenet_v3, adenet_v2_1
+from modelzoo import adenet_v3, adenet_v2_1, adenet_v2_2
 from utils.plotting_utils import print_network
 
 
@@ -247,11 +248,26 @@ def parse_options():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='config file to use, default=config/bimodal_diff_image.ini')
     parser.add_argument('--write_results', help='write results to file')
+    parser.add_argument('--weight_init', help='norm,glorot,ortho,uniform')
+    parser.add_argument('--use_peepholes', help='use peephole connections in LSTM')
+    parser.add_argument('--no_plot', dest='no_plot', action='store_true', help='disable plots')
+    parser.add_argument('--validation_window', help='validation window length, eg: 6')
+    parser.add_argument('--num_epoch', help='number of epochs to run')
     args = parser.parse_args()
     if args.config:
         options['config'] = args.config
     if args.write_results:
         options['write_results'] = args.write_results
+    if args.validation_window:
+        options['validation_window'] = args.validation_window
+    if args.weight_init:
+        options['weight_init'] = args.weight_init
+    if args.num_epoch:
+        options['num_epoch'] = args.num_epoch
+    if args.no_plot:
+        options['no_plot'] = True
+    if args.use_peepholes:
+        options['use_peepholes'] = args.use_peepholes
     return options
 
 
@@ -276,13 +292,27 @@ def main():
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
     fusiontype = config.get('models', 'fusiontype')
-    learning_rate = float(config.get('training', 'learning_rate'))
-    decay_rate = float(config.get('training', 'decay_rate'))
-    decay_start = int(config.get('training', 'decay_start'))
     do_finetune = config.getboolean('training', 'do_finetune')
     save_finetune = config.getboolean('training', 'save_finetune')
     load_finetune = config.getboolean('training', 'load_finetune')
     load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
+
+    # capture training parameters
+    validation_window = int(options['validation_window']) \
+        if 'validation_window' in options else config.getint('training', 'validation_window')
+    num_epoch = int(options['num_epoch']) if 'num_epoch' in options else config.getint('training', 'num_epoch')
+    weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
+    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
+                                                                                                  'use_peepholes')
+    weight_init_fn = las.init.GlorotUniform()
+    if weight_init == 'glorot':
+        weight_init_fn = las.init.GlorotUniform()
+    if weight_init == 'norm':
+        weight_init_fn = las.init.Normal(0.1)
+    if weight_init == 'uniform':
+        weight_init_fn = las.init.Uniform()
+    if weight_init == 'ortho':
+        weight_init_fn = las.init.Orthogonal()
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -331,11 +361,6 @@ def main():
     val_X = normalize_input(val_X, centralize=True)
     test_X = normalize_input(test_X, centralize=True)
 
-    # featurewise normalize dct features
-    train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
-    val_dct = (val_dct - dct_mean) / dct_std
-    test_dct = (test_dct - dct_mean) / dct_std
-
     if do_finetune:
         print('performing finetuning on pretrained encoder: {}'.format(ae_pretrained))
         ae = load_dbn(ae_pretrained)
@@ -369,14 +394,12 @@ def main():
     inputs_diff = T.tensor3('inputs_diff', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
-    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
-    network, adascale = adenet_v2_1.create_model(ae, ae_diff, (None, None, 1144), inputs,
-                                                 (None, None), mask,
-                                                 (None, None, 1144), inputs_diff,
-                                                 250, window, 10, fusiontype)
+    network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1144), inputs,
+                                               (None, None), mask,
+                                               (None, None, 1144), inputs_diff,
+                                               250, window, 10, fusiontype, weight_init_fn, use_peepholes)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')
@@ -384,15 +407,7 @@ def main():
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    # updates = adadelta(cost, all_params, learning_rate=lr)
     updates = adam(cost, all_params)
-
-    use_max_constraint = False
-    if use_max_constraint:
-        MAX_NORM = 4
-        for param in las.layers.get_all_params(network, regularizable=True):
-            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
-                updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
 
     train = theano.function(
         [inputs, targets, mask, inputs_diff, window],
@@ -412,17 +427,13 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 12
     EPOCH_SIZE = 120
     BATCH_SIZE = 10
     WINDOW_SIZE = 9
     STRIP_SIZE = 3
-    MAX_LOSS = 0.2
-    VALIDATION_WINDOW = 4
-    val_window = circular_list(VALIDATION_WINDOW)
+    val_window = circular_list(validation_window)
     train_strip = np.zeros((STRIP_SIZE,))
     best_val = float('inf')
-    best_conf = None
     best_cr = 0.0
 
     datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=BATCH_SIZE)
@@ -434,28 +445,14 @@ def main():
     # We'll use this "validation set" to periodically check progress
     X_val, y_val, mask_val, idxs_val = next(val_datagen)
     integral_lens_val = compute_integral_len(val_vidlens)
-    dct_val = gen_seq_batch_from_idx(val_dct, idxs_val, val_vidlens, integral_lens_val, np.max(val_vidlens))
     X_diff_val = gen_seq_batch_from_idx(val_X_diff, idxs_val, val_vidlens, integral_lens_val, np.max(val_vidlens))
 
     # we use the test set to check final classification rate
     X_test, y_test, mask_test, idxs_test = next(test_datagen)
     integral_lens_test = compute_integral_len(test_vidlens)
-    dct_test = gen_seq_batch_from_idx(test_dct, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
     X_diff_test = gen_seq_batch_from_idx(test_X_diff, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
 
-    def early_stop(cost_window):
-        if len(cost_window) < 2:
-            return False
-        else:
-            curr = cost_window[0]
-            for idx, cost in enumerate(cost_window):
-                if curr < cost or idx == 0:
-                    curr = cost
-                else:
-                    return False
-            return True
-
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(num_epoch):
         time_start = time.time()
         for i in range(EPOCH_SIZE):
             X, y, m, batch_idxs = next(datagen)
@@ -463,8 +460,7 @@ def main():
                                        train_vidlens, integral_lens, np.max(train_vidlens))
             X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
                                             train_vidlens, integral_lens, np.max(train_vidlens))
-            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(epoch + 1, i + 1, EPOCH_SIZE, len(X))
             print(print_str, end='')
             sys.stdout.flush()
             train(X, y, m, X_diff, WINDOW_SIZE)
@@ -498,12 +494,8 @@ def main():
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
 
-        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
+        if epoch >= validation_window and early_stop(val_window):
             break
-
-        # learning rate decay
-        if epoch + 1 >= decay_start:
-            lr.set_value(lr.get_value() * lr_decay)
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']
 

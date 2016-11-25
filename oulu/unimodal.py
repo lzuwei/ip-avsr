@@ -13,7 +13,7 @@ from utils.io import *
 
 import theano.tensor as T
 import theano
-from custom_layers.custom import DeltaLayer
+from custom.custom import DeltaLayer
 from nolearn.lasagne import NeuralNet
 
 import lasagne as las

@@ -6,7 +6,7 @@ from lasagne.layers import Gate, DropoutLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
 from lasagne.layers import batch_norm, BatchNormLayer
 
-from custom_layers.custom import DeltaLayer, AdaptiveElemwiseSumLayer
+from custom.custom import DeltaLayer, AdaptiveElemwiseSumLayer, MajorityVotingLayer
 
 
 def create_pretrained_encoder(weights, biases, names, incoming):
@@ -173,6 +173,7 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     # We want the network to predict a classification for the sequence,
     # so we'll use a the number of classes.
     l_out = DenseLayer(
-        l_forward_slice1, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='output')
+        l_forward_slice1, num_units=output_classes,
+        nonlinearity=las.nonlinearities.softmax, name='output')
 
     return l_out, l_fuse
