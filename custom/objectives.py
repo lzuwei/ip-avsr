@@ -1,4 +1,4 @@
-import numpy as np
+import theano.tensor as tt
 
 
 def temporal_softmax_loss(x, y, mask, verbose=False):
@@ -22,7 +22,6 @@ def temporal_softmax_loss(x, y, mask, verbose=False):
       the scores at x[i, t] should contribute to the loss.
     Returns a tuple of:
     - loss: Scalar giving loss
-    - dx: Gradient of loss with respect to scores x.
     """
 
     N, T, V = x.shape
@@ -31,17 +30,8 @@ def temporal_softmax_loss(x, y, mask, verbose=False):
     y_flat = y.reshape(N * T)
     mask_flat = mask.reshape(N * T)
 
-    probs = np.exp(x_flat - np.max(x_flat, axis=1, keepdims=True))
-    probs /= np.sum(probs, axis=1, keepdims=True)
-    loss = -np.sum(mask_flat * np.log(probs[np.arange(N * T), y_flat])) / N
-    dx_flat = probs.copy()
-    dx_flat[np.arange(N * T), y_flat] -= 1
-    dx_flat /= N
-    dx_flat *= mask_flat[:, None]
+    probs = tt.exp(x_flat - tt.max(x_flat, axis=1, keepdims=True))
+    probs /= tt.sum(probs, axis=1, keepdims=True)
+    loss = -tt.sum(mask_flat * tt.log(probs[tt.arange(N * T), y_flat])) / N
 
-    if verbose:
-        print 'dx_flat: ', dx_flat.shape
-
-    dx = dx_flat.reshape(N, T, V)
-
-    return loss, dx
+    return loss

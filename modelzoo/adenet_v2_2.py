@@ -6,7 +6,7 @@ from lasagne.layers import Gate, DropoutLayer, GlobalPoolLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
 from lasagne.layers import batch_norm, BatchNormLayer
 
-from custom.custom import DeltaLayer, AdaptiveElemwiseSumLayer, MajorityVotingLayer, MeanPoolLayer
+from custom.layers import DeltaLayer, AdaptiveElemwiseSumLayer
 
 
 def create_pretrained_encoder(weights, biases, names, incoming):
@@ -143,13 +143,16 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     f_lstm_agg, b_lstm_agg = create_blstm(l_fuse, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
     l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
 
-    # try pooling
-    l_pool = MeanPoolLayer(l_sum2, l_mask, name='meanpool')
+    # reshape to (num_examples * seq_len, lstm_size)
+    l_reshape3 = ReshapeLayer(l_sum2, (-1, lstm_size))
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,
     # so we'll use a the number of classes.
-    l_out = DenseLayer(
-        l_pool, num_units=output_classes,
-        nonlinearity=las.nonlinearities.softmax, name='output')
+    l_softmax = DenseLayer(
+        l_reshape3, num_units=output_classes,
+        nonlinearity=las.nonlinearities.softmax, name='softmax')
+
+    l_out = ReshapeLayer(l_softmax, (-1, symbolic_seqlen_raw, output_classes), name='output')
+
     return l_out, l_fuse

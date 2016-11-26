@@ -5,8 +5,6 @@ from lasagne.layers import InputLayer, LSTMLayer, DenseLayer, ConcatLayer, Slice
 from lasagne.layers import Gate, DropoutLayer
 from lasagne.nonlinearities import tanh, sigmoid, linear
 
-from custom.custom import DeltaLayer
-
 
 def create_pretrained_encoder(weights, biases, incoming):
     l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
