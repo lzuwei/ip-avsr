@@ -19,19 +19,18 @@ from utils.draw_net import draw_to_file
 
 import theano.tensor as T
 import theano
-from custom.custom import test_vote
 from nolearn.lasagne import NeuralNet
 
 import lasagne as las
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad, adam
 from lasagne.objectives import squared_error
 
 from modelzoo import adenet_v3, adenet_v2_1, adenet_v2_2
 from utils.plotting_utils import print_network
+from custom.objectives import temporal_softmax_loss
 
 
 def load_dbn(path='models/oulu_ae.mat'):
@@ -241,6 +240,42 @@ def evaluate_model(X_val, y_val, mask_val, X_diff_val, window_size, eval_fn):
     return classification_rate, confusion_matrix
 
 
+def evaluate_model2(X_val, y_val, mask_val, X_diff_val, window_size, eval_fn):
+    """
+    Evaluate a lstm model
+    :param X_val: validation inputs
+    :param y_val: validation targets
+    :param mask_val: input masks for variable sequences
+    :param X_diff_val: validation inputs diff image
+    :param window_size: size of window for computing delta coefficients
+    :param eval_fn: evaluation function
+    :return: classification rate, confusion matrix
+    """
+    output = eval_fn(X_val, mask_val, X_diff_val, window_size)
+    num_classes = output.shape[-1]
+    confusion_matrix = np.zeros((num_classes, num_classes), dtype='int')
+    ix = np.zeros((X_val.shape[0],), dtype='int')
+    seq_lens = np.sum(mask_val, axis=-1)
+
+    # for each example, we only consider argmax of the seq len
+    votes = np.zeros((10,), dtype='int')
+    for i, eg in enumerate(output):
+        predictions = np.argmax(eg[:seq_lens[i]], axis=-1)
+        for cls in range(num_classes):
+            count = (predictions == cls).sum(axis=-1)
+            votes[cls] = count
+        ix[i] = np.argmax(votes)
+
+    c = ix == y_val
+    classification_rate = np.sum(c == True) / float(len(c))
+
+    # construct the confusion matrix
+    for i, target in enumerate(y_val):
+        confusion_matrix[target, ix[i]] += 1
+
+    return classification_rate, confusion_matrix
+
+
 def parse_options():
     options = dict()
     options['config'] = 'config/bimodal_diff_image.ini'
@@ -365,11 +400,12 @@ def main():
         print('performing finetuning on pretrained encoder: {}'.format(ae_pretrained))
         ae = load_dbn(ae_pretrained)
         ae.initialize()
-        ae.fit(train_X, train_X)
+        #ae.fit(train_X, train_X)
 
     if save_finetune:
         print('saving finetuned encoder: {}...'.format(ae_finetuned))
         pickle.dump(ae, open(ae_finetuned, 'wb'))
+        exit()
 
     if load_finetune:
         print('loading finetuned encoder: {}...'.format(ae_finetuned))
@@ -393,7 +429,8 @@ def main():
     inputs = T.tensor3('inputs', dtype='float32')
     inputs_diff = T.tensor3('inputs_diff', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
-    targets = T.ivector('targets')
+    # targets = T.ivector('targets')
+    targets = T.imatrix('targets')
 
     print('constructing end to end model...')
     network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1144), inputs,
@@ -406,7 +443,8 @@ def main():
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
-    cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
+    # cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
+    cost = temporal_softmax_loss(predictions, targets, mask)
     updates = adam(cost, all_params)
 
     train = theano.function(
@@ -416,7 +454,8 @@ def main():
                                          cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
-    test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
+    # test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
+    test_cost = temporal_softmax_loss(test_predictions, targets, mask)
     compute_test_cost = theano.function(
         [inputs, targets, mask, inputs_diff, window], test_cost, allow_input_downcast=True)
 
@@ -452,10 +491,17 @@ def main():
     integral_lens_test = compute_integral_len(test_vidlens)
     X_diff_test = gen_seq_batch_from_idx(test_X_diff, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
 
+    # reshape the targets for validation
+    y_val_evaluate = y_val
+    y_val = y_val.reshape((-1, 1)).repeat(mask_val.shape[-1], axis=-1)
+
     for epoch in range(num_epoch):
         time_start = time.time()
         for i in range(EPOCH_SIZE):
             X, y, m, batch_idxs = next(datagen)
+            # repeat targets based on max sequence len
+            y = y.reshape((-1, 1))
+            y = y.repeat(m.shape[-1], axis=-1)
             _ = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlens, integral_lens, np.max(train_vidlens))
             X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
@@ -476,7 +522,7 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model(X_val, y_val, mask_val, X_diff_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, X_diff_val, WINDOW_SIZE, val_fn)
         class_rate.append(cr)
 
         if val_cost < best_val:
@@ -484,8 +530,8 @@ def main():
             best_cr = cr
             if fusiontype == 'adasum':
                 adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
-            test_cr, test_conf = evaluate_model(X_test, y_test, mask_test,
-                                                X_diff_test, WINDOW_SIZE, val_fn)
+            test_cr, test_conf = evaluate_model2(X_test, y_test, mask_test,
+                                                 X_diff_test, WINDOW_SIZE, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))

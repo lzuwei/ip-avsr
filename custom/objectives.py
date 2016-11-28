@@ -1,7 +1,7 @@
 import theano.tensor as tt
 
 
-def temporal_softmax_loss(x, y, mask, verbose=False):
+def temporal_softmax_loss(x, y, mask):
     """
     A temporal version of softmax loss for use in RNNs. We assume that we are
     making predictions over a vocabulary of size V for each timestep of a
@@ -26,9 +26,9 @@ def temporal_softmax_loss(x, y, mask, verbose=False):
 
     N, T, V = x.shape
 
-    x_flat = x.reshape(N * T, V)
-    y_flat = y.reshape(N * T)
-    mask_flat = mask.reshape(N * T)
+    x_flat = x.reshape((N * T, V))
+    y_flat = y.reshape((N * T,))
+    mask_flat = mask.reshape((N * T,))
 
     probs = tt.exp(x_flat - tt.max(x_flat, axis=1, keepdims=True))
     probs /= tt.sum(probs, axis=1, keepdims=True)
