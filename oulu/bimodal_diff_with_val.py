@@ -25,10 +25,10 @@ import lasagne as las
 import numpy as np
 from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
-from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad, adam
+from lasagne.updates import nesterov_momentum, adam
 from lasagne.objectives import squared_error
 
-from modelzoo import adenet_v3, adenet_v2_1, adenet_v2_2
+from modelzoo import adenet_v2_1, adenet_v2_2, adenet_v2_4
 from utils.plotting_utils import print_network
 from custom.objectives import temporal_softmax_loss
 
@@ -323,12 +323,9 @@ def main():
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
     dct_data = load_mat_file(config.get('data', 'dct'))
-    ae_pretrained = config.get('models', 'pretrained')
     ae_finetuned = config.get('models', 'finetuned')
     ae_finetuned_diff = config.get('models', 'finetuned_diff')
     fusiontype = config.get('models', 'fusiontype')
-    do_finetune = config.getboolean('training', 'do_finetune')
-    save_finetune = config.getboolean('training', 'save_finetune')
     load_finetune = config.getboolean('training', 'load_finetune')
     load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
 
@@ -339,6 +336,9 @@ def main():
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
     use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
                                                                                                   'use_peepholes')
+    use_blstm = config.getboolean('training', 'use_blstm')
+    use_finetuning = config.getboolean('training', 'use_finetuning')
+
     weight_init_fn = las.init.GlorotUniform()
     if weight_init == 'glorot':
         weight_init_fn = las.init.GlorotUniform()
@@ -396,17 +396,6 @@ def main():
     val_X = normalize_input(val_X, centralize=True)
     test_X = normalize_input(test_X, centralize=True)
 
-    if do_finetune:
-        print('performing finetuning on pretrained encoder: {}'.format(ae_pretrained))
-        ae = load_dbn(ae_pretrained)
-        ae.initialize()
-        #ae.fit(train_X, train_X)
-
-    if save_finetune:
-        print('saving finetuned encoder: {}...'.format(ae_finetuned))
-        pickle.dump(ae, open(ae_finetuned, 'wb'))
-        exit()
-
     if load_finetune:
         print('loading finetuned encoder: {}...'.format(ae_finetuned))
         ae = pickle.load(open(ae_finetuned, 'rb'))
@@ -433,10 +422,16 @@ def main():
     targets = T.imatrix('targets')
 
     print('constructing end to end model...')
-    network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1144), inputs,
-                                               (None, None), mask,
-                                               (None, None, 1144), inputs_diff,
-                                               250, window, 10, fusiontype, weight_init_fn, use_peepholes)
+    if use_blstm:
+        network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1144), inputs,
+                                                   (None, None), mask,
+                                                   (None, None, 1144), inputs_diff,
+                                                   250, window, 10, fusiontype, weight_init_fn, use_peepholes)
+    else:
+        network, l_fuse = adenet_v2_4.create_model(ae, ae_diff, (None, None, 1144), inputs,
+                                                   (None, None), mask,
+                                                   (None, None, 1144), inputs_diff,
+                                                   250, window, 10, fusiontype, weight_init_fn, use_peepholes)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')
@@ -502,8 +497,6 @@ def main():
             # repeat targets based on max sequence len
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
-            _ = gen_seq_batch_from_idx(train_dct, batch_idxs,
-                                       train_vidlens, integral_lens, np.max(train_vidlens))
             X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
                                             train_vidlens, integral_lens, np.max(train_vidlens))
             print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(epoch + 1, i + 1, EPOCH_SIZE, len(X))
@@ -553,10 +546,21 @@ def main():
     plot_confusion_matrix(test_conf, phrases, fmt='latex')
     plot_validation_cost(cost_train, cost_val, savefilename='valid_cost')
 
-    if options['write_results']:
+    if 'write_results' in options:
         results_file = options['write_results']
         with open(results_file, mode='a') as f:
-            f.write('{},{},{}\n'.format(fusiontype, test_cr, best_val))
+            f.write('{},{},{},{},{}\n'.format(validation_window, weight_init, use_peepholes, use_blstm, use_finetuning))
+
+            s = ','.join([str(v) for v in cost_train])
+            f.write('{}\n'.format(s))
+
+            s = ','.join([str(v) for v in cost_val])
+            f.write('{}\n'.format(s))
+
+            s = ','.join([str(v) for v in class_rate])
+            f.write('{}\n'.format(s))
+
+            f.write('{},{},{}\n'.format(fusiontype, best_cr, best_val))
 
 
 if __name__ == '__main__':

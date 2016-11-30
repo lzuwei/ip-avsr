@@ -127,10 +127,10 @@ def main():
         print('performing finetuning...')
         ae = load_ae(ae_pretrained, train_params)
         ae.initialize()
-        ae.fit(train_data, train_data)
-        res = ae.predict(test_data)
+        # ae.fit(train_data, train_data)
+        # res = ae.predict(test_data)
         # print(res.shape)
-        visualize_reconstruction(test_data[300:336], res[300:336], shape=(30, 50))
+        # visualize_reconstruction(test_data[300:336], res[300:336], shape=(30, 50))
 
     if save_finetune:
         print('saving finetuned encoder: {}...'.format(ae_finetuned))

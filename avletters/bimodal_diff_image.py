@@ -20,7 +20,7 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
-from custom.custom import DeltaLayer
+from utils.regularization import early_stop2
 from modelzoo import adenet_v6, adenet_v2_1
 
 import numpy as np
@@ -408,29 +408,6 @@ def main():
     integral_lens_val = compute_integral_len(test_vidlen_vec)
     diff_val = gen_seq_batch_from_idx(test_diff_data, idxs_val,
                                       test_vidlen_vec, integral_lens_val, np.max(test_vidlen_vec))
-
-    def early_stop(cost_window):
-        if len(cost_window) < 2:
-            return False
-        else:
-            curr = cost_window[0]
-            for idx, cost in enumerate(cost_window):
-                if curr < cost or idx == 0:
-                    curr = cost
-                else:
-                    return False
-            return True
-
-    def early_stop2(cost_window, min_val_cost, threshold):
-        if len(cost_window) < 2:
-            return False
-        else:
-            count = 0
-            for cost in cost_window:
-                if cost > min_val_cost:
-                    count += 1
-                if count == threshold:
-                    return True
 
     for epoch in range(num_epoch):
         time_start = time.time()

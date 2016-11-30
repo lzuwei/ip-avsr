@@ -29,9 +29,11 @@ def temporal_softmax_loss(x, y, mask):
     x_flat = x.reshape((N * T, V))
     y_flat = y.reshape((N * T,))
     mask_flat = mask.reshape((N * T,))
+    total_frames = tt.sum(mask_flat)
 
     probs = tt.exp(x_flat - tt.max(x_flat, axis=1, keepdims=True))
     probs /= tt.sum(probs, axis=1, keepdims=True)
-    loss = -tt.sum(mask_flat * tt.log(probs[tt.arange(N * T), y_flat])) / N
+    # loss = -tt.sum(mask_flat * tt.log(probs[tt.arange(N * T), y_flat])) / N
+    loss = -tt.sum(mask_flat * tt.log(probs[tt.arange(N * T), y_flat])) / total_frames
 
     return loss

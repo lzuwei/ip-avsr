@@ -17,7 +17,7 @@ def create_pretrained_encoder(weights, biases, names, incoming):
     return l_4
 
 
-def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=True):
+def create_lstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=True):
 
     if cell_parameters is None:
         cell_parameters = Gate()
@@ -34,15 +34,7 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
         # We'll learn the initialization and use gradient clipping
         learn_init=True, grad_clipping=5., name='f_{}'.format(name))
 
-    # The "backwards" layer is the same as the first,
-    # except that the backwards argument is set to True.
-    l_lstm_back = LSTMLayer(
-        l_incoming, hidden_units, ingate=gate_parameters, peepholes=use_peepholes,
-        mask_input=l_mask, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        learn_init=True, grad_clipping=5., backwards=True, name='b_{}'.format(name))
-
-    return l_lstm, l_lstm_back
+    return l_lstm
 
 
 def extract_weights(ae):
@@ -138,11 +130,10 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     elif fusiontype == 'concat':
         l_fuse = ConcatLayer([l_lstm_raw, l_lstm_diff], axis=-1, name='concat')
 
-    f_lstm_agg, b_lstm_agg = create_blstm(l_fuse, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
-    l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
+    f_lstm_agg = create_lstm(l_fuse, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
 
     # reshape to (num_examples * seq_len, lstm_size)
-    l_reshape3 = ReshapeLayer(l_sum2, (-1, lstm_size))
+    l_reshape3 = ReshapeLayer(f_lstm_agg, (-1, lstm_size))
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,

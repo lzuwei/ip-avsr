@@ -45,6 +45,26 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
     return l_lstm, l_lstm_back
 
 
+def create_lstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=True):
+
+    if cell_parameters is None:
+        cell_parameters = Gate()
+    if gate_parameters is None:
+        gate_parameters = Gate()
+
+    l_lstm = LSTMLayer(
+        l_incoming, hidden_units, peepholes=use_peepholes,
+        # We need to specify a separate input for masks
+        mask_input=l_mask,
+        # Here, we supply the gate parameters for each gate
+        ingate=gate_parameters, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        # We'll learn the initialization and use gradient clipping
+        learn_init=True, grad_clipping=5., name='f_{}'.format(name))
+
+    return l_lstm
+
+
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
                  dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
                  output_classes=26, fusiontype='sum', w_init_fn=las.init.Orthogonal(),
@@ -115,33 +135,10 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     elif fusiontype == 'concat':
         l_fuse = ConcatLayer([l_lstm_bn, l_lstm_dct], axis=2, name='concat')
 
-    f_lstm_agg, b_lstm_agg = create_blstm(l_fuse, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
-
-    '''
-    l_lstm_agg = LSTMLayer(
-        l_sum1, lstm_size,
-        # We need to specify a separate input for masks
-        mask_input=l_mask,
-        # Here, we supply the gate parameters for each gate
-        ingate=gate_parameters, forgetgate=gate_parameters,
-        cell=cell_parameters, outgate=gate_parameters,
-        # We'll learn the initialization and use gradient clipping
-        learn_init=True, grad_clipping=5., name='lstm_agg')
-
-    # implement drop-out regularization
-    l_dropout = DropoutLayer(l_sum1, p=0.4, name='dropout1')
-
-    l_lstm2, l_lstm2_back = create_blstm(l_dropout, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm2')
-
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum2 = ElemwiseSumLayer([l_lstm2, l_lstm2_back])
-    '''
-
-    l_sum2 = ElemwiseSumLayer([f_lstm_agg, b_lstm_agg], name='sum2')
+    f_lstm_agg = create_lstm(l_fuse, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm_agg')
 
     # reshape to (num_examples * seq_len, lstm_size)
-    l_reshape3 = ReshapeLayer(l_sum2, (-1, lstm_size))
+    l_reshape3 = ReshapeLayer(f_lstm_agg, (-1, lstm_size))
 
     # l_forward_slice1 = SliceLayer(l_sum2, -1, 1, name='slice1')
 

@@ -17,7 +17,7 @@ if type == 1 % AE
 
    %if type = 1, i.e., AE then the last layer should be linear and usually a
 % series of decreasing layers are used
-    hiddenActivationFunctions = {'sigm','sigm','sigm','linear'}; 
+    hiddenActivationFunctions = {'ReLu','ReLu','ReLu','linear'};%{'sigm','sigm','sigm','linear'}; 
     hiddenLayers = [2000 1000 500 50]; 
    
 elseif type == 2 % classifier
