@@ -279,7 +279,6 @@ def evaluate_model2(X_val, y_val, mask_val, X_diff_val, window_size, eval_fn):
 def parse_options():
     options = dict()
     options['config'] = 'config/bimodal_meanrm_raw_diff.ini'
-    options['write_results'] = ''
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='config file to use, default=config/bimodal_meanrm_raw_diff.ini')
     parser.add_argument('--write_results', help='write results to file')
