@@ -1,9 +1,7 @@
 from __future__ import print_function
 import sys
 sys.path.insert(0, '../')
-import os
 import time
-import pickle
 import ConfigParser
 import argparse
 
@@ -13,178 +11,21 @@ import theano
 import matplotlib
 matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
-import lasagne as las
 from utils.preprocessing import *
 from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
 from utils.draw_net import draw_to_file
-from custom.custom import DeltaLayer
 from modelzoo import lstm_classifier_baseline
+from utils.regularization import early_stop2
 
 import numpy as np
-from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer, BatchNormLayer, batch_norm
-from lasagne.nonlinearities import tanh, linear, sigmoid, rectify, leaky_rectify
-from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint
-from lasagne.objectives import squared_error
-from nolearn.lasagne import NeuralNet
 
 
 def configure_theano():
     theano.config.floatX = 'float32'
     sys.setrecursionlimit(10000)
-
-
-def test_delta():
-    a = np.array([[1,1,1,1,1,1,1,1,10], [2,2,2,2,2,2,2,2,20], [3,3,3,3,3,3,3,3,30], [4,4,4,4,4,4,4,4,40]])
-    aa = deltas(a, 9)
-    print(aa)
-
-
-def test_concatlayer():
-    a = np.array([
-        [
-            [1, 2, 3, 4],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4]
-        ],
-        [
-            [1, 2, 3, 4],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4]
-        ]
-    ], dtype=np.int32)
-    b = np.array([
-        [
-            [5, 6, 7],
-            [5, 6, 7],
-            [5, 6, 7]
-        ],
-        [
-            [5, 6, 7],
-            [5, 6, 7],
-            [5, 6, 7]
-        ]
-    ], dtype=np.int32)
-
-    input_var = T.tensor3('input', dtype='int32')
-    dct_var = T.tensor3('dct', dtype='int32')
-    l_in = InputLayer((None, None, 4), input_var, name='input')
-    l_dct = InputLayer((None, None, 3), dct_var, name='dct')
-    l_merge = ConcatLayer([l_in, l_dct], axis=2, name='merge')
-    network = las.layers.get_all_layers(l_merge)
-    print_network(network)
-    output = las.layers.get_output(l_merge)
-    merge_fn = theano.function([input_var, dct_var], output, allow_input_downcast=True)
-    res = merge_fn(a, b)
-    assert res.shape == (2, 3, 7)
-
-
-def test_datagen(X, seqlens):
-    pass
-
-
-def load_dbn(path='models/avletters_ae.mat'):
-    """
-    load a pretrained dbn from path
-    :param path: path to the .mat dbn
-    :return: pretrained deep belief network
-    """
-    # create the network using weights from pretrain_nn.mat
-    nn = sio.loadmat(path)
-    w1 = nn['w1'].astype('float32')
-    w2 = nn['w2'].astype('float32')
-    w3 = nn['w3'].astype('float32')
-    w4 = nn['w4'].astype('float32')
-    w5 = nn['w5'].astype('float32')
-    w6 = nn['w6'].astype('float32')
-    w7 = nn['w7'].astype('float32')
-    w8 = nn['w8'].astype('float32')
-    b1 = nn['b1'][0].astype('float32')
-    b2 = nn['b2'][0].astype('float32')
-    b3 = nn['b3'][0].astype('float32')
-    b4 = nn['b4'][0].astype('float32')
-    b5 = nn['b5'][0].astype('float32')
-    b6 = nn['b6'][0].astype('float32')
-    b7 = nn['b7'][0].astype('float32')
-    b8 = nn['b8'][0].astype('float32')
-
-    layers = [
-        (InputLayer, {'name': 'input', 'shape': (None, 1200)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
-        (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
-        (DenseLayer, {'name': 'output', 'num_units': 1200, 'nonlinearity': linear, 'W': w8, 'b': b8}),
-    ]
-
-    dbn = NeuralNet(
-        layers=layers,
-        max_epochs=10,
-        objective_loss_function=squared_error,
-        update=adadelta,
-        regression=True,
-        verbose=1,
-        update_learning_rate=0.01,
-        # update_learning_rate=0.001,
-        # update_momentum=0.05,
-        objective_l2=0.005,
-    )
-    return dbn
-
-
-def load_finetuned_dbn(path):
-    """
-    Load a fine tuned Deep Belief Net from file
-    :param path: path to deep belief net parameters
-    :return: deep belief net
-    """
-    dbn = NeuralNet(
-        layers=[
-            ('input', las.layers.InputLayer),
-            ('l1', las.layers.DenseLayer),
-            ('l2', las.layers.DenseLayer),
-            ('l3', las.layers.DenseLayer),
-            ('l4', las.layers.DenseLayer),
-            ('l5', las.layers.DenseLayer),
-            ('l6', las.layers.DenseLayer),
-            ('l7', las.layers.DenseLayer),
-            ('output', las.layers.DenseLayer)
-        ],
-        input_shape=(None, 1200),
-        l1_num_units=2000, l1_nonlinearity=sigmoid,
-        l2_num_units=1000, l2_nonlinearity=sigmoid,
-        l3_num_units=500, l3_nonlinearity=sigmoid,
-        l4_num_units=50, l4_nonlinearity=linear,
-        l5_num_units=500, l5_nonlinearity=sigmoid,
-        l6_num_units=1000, l6_nonlinearity=sigmoid,
-        l7_num_units=2000, l7_nonlinearity=sigmoid,
-        output_num_units=1200, output_nonlinearity=linear,
-        update=nesterov_momentum,
-        update_learning_rate=0.001,
-        update_momentum=0.5,
-        objective_l2=0.005,
-        verbose=1,
-        regression=True
-    )
-    with open(path, 'rb') as f:
-        pretrained_nn = pickle.load(f)
-    if pretrained_nn is not None:
-        dbn.load_params_from(path)
-    return dbn
-
-
-def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 1000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 1000, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
-    return l_4
 
 
 def evaluate_model(X_val, y_val, mask_val, eval_fn):
@@ -217,11 +58,29 @@ def parse_options():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='config file to use, default=config/unimodal_dct.ini')
     parser.add_argument('--write_results', help='write results to file')
+    parser.add_argument('--dct_data', help='DCT Features Data File')
+    parser.add_argument('--no_coeff', help='Number of DCT Coefficients')
+    parser.add_argument('--no_epochs', help='Max epochs to run')
+    parser.add_argument('--epochsize', help='Number of mini batches to run for each epoch')
+    parser.add_argument('--batchsize', help='Mini batch size')
+    parser.add_argument('--validation_window', help='validation window size')
     args = parser.parse_args()
     if args.config:
         options['config'] = args.config
     if args.write_results:
         options['write_results'] = args.write_results
+    if args.dct_data:
+        options['dct_data'] = args.dct_data
+    if args.no_coeff:
+        options['no_coeff'] = int(args.no_coeff)
+    if args.no_epochs:
+        options['no_epochs'] = int(args.no_epochs)
+    if args.validation_window:
+        options['validation_window'] = int(args.validation_window)
+    if args.epochsize:
+        options['epochsize'] = int(args.epochsize)
+    if args.batchsize:
+        options['batchsize'] = int(args.batchsize)
     return options
 
 
@@ -241,15 +100,13 @@ def main():
 
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
-    dct_data = load_mat_file(config.get('data', 'dct'))
-    ae_pretrained = config.get('models', 'pretrained')
-    ae_finetuned = config.get('models', 'finetuned')
-    learning_rate = float(config.get('training', 'learning_rate'))
-    decay_rate = float(config.get('training', 'decay_rate'))
-    decay_start = int(config.get('training', 'decay_start'))
-    do_finetune = config.getboolean('training', 'do_finetune')
-    save_finetune = config.getboolean('training', 'save_finetune')
-    load_finetune = config.getboolean('training', 'load_finetune')
+    dct_data = load_mat_file(options['dct_data'] if 'dct_data' in options else config.get('data', 'dct'))
+    no_coeff = options['no_coeff'] if 'no_coeff' in options else config.getint('models', 'no_coeff')
+    no_epochs = options['no_epochs'] if 'no_epochs' in options else config.getint('training', 'no_epochs')
+    validation_window = options['validation_window'] if 'validation_window' in options \
+        else config.getint('training', 'validation_window')
+    epochsize = options['epochsize'] if 'epochsize' in options else config.getint('training', 'epochsize')
+    batchsize = options['batchsize'] if 'batchsize' in options else config.getint('training', 'batchsize')
 
     # create the necessary variable mappings
     data_matrix = data['dataMatrix'].astype('float32')
@@ -282,11 +139,9 @@ def main():
     inputs = T.tensor3('inputs', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.ivector('targets')
-    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
 
     print('constructing end to end model...')
-    network = lstm_classifier_baseline.create_model((None, None, 90), inputs,
+    network = lstm_classifier_baseline.create_model((None, None, no_coeff*3), inputs,
                                                     (None, None), mask,
                                                     250, 26)
 
@@ -297,15 +152,7 @@ def main():
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = las.updates.adadelta(cost, all_params, learning_rate=lr)
-    # updates = las.updates.adam(cost, all_params, learning_rate=lr)
-
-    use_max_constraint = False
-    if use_max_constraint:
-        MAX_NORM = 4
-        for param in las.layers.get_all_params(network, regularizable=True):
-            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
-                updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
+    updates = las.updates.adam(cost, all_params)
 
     train = theano.function(
         [inputs, targets, mask],
@@ -324,20 +171,14 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 30
-    EPOCH_SIZE = 20
-    BATCH_SIZE = 26
-    WINDOW_SIZE = 9
     STRIP_SIZE = 3
-    MAX_LOSS = 0.2
-    VALIDATION_WINDOW = 4
-    val_window = circular_list(VALIDATION_WINDOW)
+    val_window = circular_list(validation_window)
     train_strip = np.zeros((STRIP_SIZE,))
     best_val = float('inf')
     best_conf = None
     best_cr = 0.0
 
-    datagen = gen_lstm_batch_random(train_data, train_targets, train_vidlen_vec, batchsize=BATCH_SIZE)
+    datagen = gen_lstm_batch_random(train_data, train_targets, train_vidlen_vec, batchsize=batchsize)
     val_datagen = gen_lstm_batch_random(test_data, test_targets, test_vidlen_vec,
                                         batchsize=len(test_vidlen_vec))
     integral_lens = compute_integral_len(train_vidlen_vec)
@@ -347,26 +188,14 @@ def main():
     integral_lens_val = compute_integral_len(test_vidlen_vec)
     dct_val = gen_seq_batch_from_idx(test_dct, idxs_val, test_vidlen_vec, integral_lens_val, np.max(test_vidlen_vec))
 
-    def early_stop(cost_window):
-        if len(cost_window) < 2:
-            return False
-        else:
-            curr = cost_window[0]
-            for idx, cost in enumerate(cost_window):
-                if curr < cost or idx == 0:
-                    curr = cost
-                else:
-                    return False
-            return True
-
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(no_epochs):
         time_start = time.time()
-        for i in range(EPOCH_SIZE):
+        for i in range(epochsize):
             X, y, m, batch_idxs = next(datagen)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlen_vec, integral_lens, np.max(train_vidlen_vec))
-            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(
+                epoch + 1, i + 1, epochsize, len(X))
             print(print_str, end='')
             sys.stdout.flush()
             train(d, y, m)
@@ -394,12 +223,8 @@ def main():
             best_conf = val_conf
             best_cr = cr
 
-        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
+        if epoch >= validation_window and early_stop2(val_window, best_val, validation_window):
             break
-
-        # learning rate decay
-        if epoch + 1 >= decay_start:  # 20, 8
-            lr.set_value(lr.get_value() * lr_decay)
 
     letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g',
                'h', 'i', 'j', 'k', 'l', 'm', 'n',

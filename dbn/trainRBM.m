@@ -53,7 +53,12 @@ end
 
 % Initializing weights and biases. Weights are initialised randomly and
 % biases are set to 0 as in Hinton's code http://www.cs.toronto.edu/~hinton/MatlabForSciencePaper.html
-  weights     = 0.1*randn(numDims, numHid);
+% for ReLU we use a smaller initialization weight threshold
+if strcmpi(hL_type,'ReLu') || strcmpi(vL_type, 'ReLu')
+    weights = 0.01*randn(numDims, numHid);
+else
+    weights     = 0.1*randn(numDims, numHid);
+end
   hidbiases  = zeros(1,numHid);
   visbiases  = zeros(1,numDims);
   

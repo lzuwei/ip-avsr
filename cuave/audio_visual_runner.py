@@ -28,7 +28,7 @@ from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
 from lasagne.updates import nesterov_momentum, adam
 from lasagne.objectives import squared_error
 
-from modelzoo import adenet_v3, adenet_v2_1, adenet_v2_2, adenet_v2_4
+from modelzoo import avnet
 from utils.plotting_utils import print_network
 
 
@@ -44,68 +44,15 @@ def load_dbn(path='models/oulu_ae.mat'):
     w2 = nn['w2']
     w3 = nn['w3']
     w4 = nn['w4']
-    w5 = nn['w5']
-    w6 = nn['w6']
-    w7 = nn['w7']
-    w8 = nn['w8']
     b1 = nn['b1'][0]
     b2 = nn['b2'][0]
     b3 = nn['b3'][0]
     b4 = nn['b4'][0]
-    b5 = nn['b5'][0]
-    b6 = nn['b6'][0]
-    b7 = nn['b7'][0]
-    b8 = nn['b8'][0]
 
-    layers = [
-        (InputLayer, {'name': 'input', 'shape': (None, 1144)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
-        (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
-        (DenseLayer, {'name': 'output', 'num_units': 1144, 'nonlinearity': linear, 'W': w8, 'b': b8}),
-    ]
+    weights = [w1, w2, w3, w4]
+    biases = [b1, b2, b3, b4]
 
-    dbn = NeuralNet(
-        layers=layers,
-        max_epochs=30,
-        objective_loss_function=squared_error,
-        update=nesterov_momentum,
-        regression=True,
-        verbose=1,
-        update_learning_rate=0.001,
-        update_momentum=0.05,
-        objective_l2=0.005,
-    )
-    return dbn
-
-
-def extract_encoder(dbn):
-    dbn_layers = dbn.get_all_layers()
-    encoder = NeuralNet(
-        layers=[
-            (InputLayer, {'name': 'input', 'shape': dbn_layers[0].shape}),
-            (DenseLayer, {'name': 'l1', 'num_units': dbn_layers[1].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[1].W, 'b': dbn_layers[1].b}),
-            (DenseLayer, {'name': 'l2', 'num_units': dbn_layers[2].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[2].W, 'b': dbn_layers[2].b}),
-            (DenseLayer, {'name': 'l3', 'num_units': dbn_layers[3].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[3].W, 'b': dbn_layers[3].b}),
-            (DenseLayer, {'name': 'l4', 'num_units': dbn_layers[4].num_units, 'nonlinearity': linear,
-                          'W': dbn_layers[4].W, 'b': dbn_layers[4].b}),
-        ],
-        update=nesterov_momentum,
-        update_learning_rate=0.001,
-        update_momentum=0.5,
-        objective_l2=0.005,
-        verbose=1,
-        regression=True
-    )
-    encoder.initialize()
-    return encoder
+    return weights, biases
 
 
 def configure_theano():
@@ -277,9 +224,9 @@ def evaluate_model2(X_val, y_val, mask_val, X_diff_val, window_size, eval_fn):
 
 def parse_options():
     options = dict()
-    options['config'] = 'config/bimodal_meanrm_raw_diff.ini'
+    options['config'] = 'config/avnet.ini'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', help='config file to use, default=config/bimodal_meanrm_raw_diff.ini')
+    parser.add_argument('--config', help='config file to use, default=config/avnet.ini')
     parser.add_argument('--write_results', help='write results to file')
     parser.add_argument('--learning_rate', help='learning rate')
     args = parser.parse_args()
@@ -308,11 +255,12 @@ def main():
 
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
-    ae_finetuned = config.get('models', 'finetuned')
-    ae_finetuned_diff = config.get('models', 'finetuned_diff')
+    data_audio = load_mat_file(config.get('data', 'audio'))
+    ae_pretrained = config.get('models', 'pretrained')
+    ae_diff_pretrained = config.get('models', 'pretrained_diff')
     fusiontype = config.get('models', 'fusiontype')
-    load_finetune = config.getboolean('training', 'load_finetune')
-    load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
+    lstm_size = config.getint('models', 'lstm_size')
+    output_classes = config.getint('models', 'output_classes')
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
@@ -323,6 +271,9 @@ def main():
         else config.getfloat('training', 'learning_rate')
     use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
                                                                                                   'use_peepholes')
+    input_dimension = config.getint('models', 'input_dimension')
+    input_dimension2 = config.getint('models', 'input_dimension2')
+
     use_blstm = config.getboolean('training', 'use_blstm')
     use_finetuning = config.getboolean('training', 'use_finetuning')
 
@@ -342,30 +293,20 @@ def main():
     train_X = data['trData'].astype('float32')
     val_X = data['valData'].astype('float32')
     test_X = data['testData'].astype('float32')
-    train_X_diff = compute_diff_images(train_X, train_vidlens)
-    val_X_diff = compute_diff_images(val_X, val_vidlens)
-    test_X_diff = compute_diff_images(test_X, test_vidlens)
+    train_X_audio = data_audio['trData'].astype('float32')
+    val_X_audio = data_audio['valData'].astype('float32')
+    test_X_audio = data_audio['testData'].astype('float32')
     # +1 to handle the -1 introduced in lstm_gendata
     train_y = data['trTargetsVec'].astype('int').reshape((-1,)) + 1
     val_y = data['valTargetsVec'].astype('int').reshape((-1,)) + 1
     test_y = data['testTargetsVec'].astype('int').reshape((-1,)) + 1
 
-    train_X = reorder_data(train_X, (30, 50), 'c', 'f')
-    val_X = reorder_data(val_X, (30, 50), 'c', 'f')
-    test_X = reorder_data(test_X, (30, 50), 'c', 'f')
-    train_X_diff = reorder_data(train_X_diff, (30, 50), 'c', 'f')
-    val_X_diff = reorder_data(val_X_diff, (30, 50), 'c', 'f')
-    test_X_diff = reorder_data(test_X_diff, (30, 50), 'c', 'f')
+    train_X = reorder_data(train_X, (30, 50))
+    val_X = reorder_data(val_X, (30, 50))
+    test_X = reorder_data(test_X, (30, 50))
 
-    if load_finetune:
-        print('loading finetuned encoder: {}...'.format(ae_finetuned))
-        ae = pickle.load(open(ae_finetuned, 'rb'))
-        ae.initialize()
-
-    if load_finetune_diff:
-        print('loading finetuned encoder: {}...'.format(ae_finetuned_diff))
-        ae_diff = pickle.load(open(ae_finetuned_diff, 'rb'))
-        ae_diff.initialize()
+    visual_weights, visual_biases = load_dbn(ae_pretrained)
+    audio_weights, audio_biases = load_dbn(ae_diff_pretrained)
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -375,27 +316,23 @@ def main():
     # visualize_reconstruction(test_X[:36, :], output[:36, :], shape=(26, 44))
 
     window = T.iscalar('theta')
-    inputs = T.tensor3('inputs', dtype='float32')
-    inputs_diff = T.tensor3('inputs_diff', dtype='float32')
+    visual_input = T.tensor3('visual_input', dtype='float32')
+    audio_input = T.tensor3('audio_input', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
-    # targets = T.ivector('targets')
     targets = T.imatrix('targets')
 
     print('constructing end to end model...')
-    if use_blstm:
-        network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1500), inputs,
-                                                   (None, None), mask,
-                                                   (None, None, 1500), inputs_diff,
-                                                   250, window, 10, fusiontype,
-                                                   w_init_fn=weight_init_fn,
-                                                   use_peepholes=use_peepholes)
-    else:
-        network, l_fuse = adenet_v2_4.create_model(ae, ae_diff, (None, None, 1500), inputs,
-                                                   (None, None), mask,
-                                                   (None, None, 1500), inputs_diff,
-                                                   250, window, 10, fusiontype,
-                                                   w_init_fn=weight_init_fn,
-                                                   use_peepholes=use_peepholes)
+    visual_net = avnet.create_pretrained_substream(visual_weights, visual_biases,
+                                                   (None, None, input_dimension), visual_input,
+                                                   (None, None), mask, 'visual',
+                                                   lstm_size, window, rectify, weight_init_fn, use_peepholes)
+
+    audio_net = avnet.create_pretrained_substream(audio_weights, audio_biases,
+                                                  (None, None, input_dimension2), audio_input,
+                                                  (None, None), mask, 'audio',
+                                                  lstm_size, window, rectify, weight_init_fn, use_peepholes)
+    network, l_fuse = avnet.create_model([visual_net, audio_net], (None, None), mask, lstm_size, output_classes,
+                                         fusiontype, weight_init_fn, use_peepholes)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')
@@ -406,17 +343,17 @@ def main():
     updates = adam(cost, all_params, learning_rate=learning_rate)
 
     train = theano.function(
-        [inputs, targets, mask, inputs_diff, window],
+        [visual_input, targets, mask, audio_input, window],
         cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs, targets, mask, inputs_diff, window],
+    compute_train_cost = theano.function([visual_input, targets, mask, audio_input, window],
                                          cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = temporal_softmax_loss(test_predictions, targets, mask)
     compute_test_cost = theano.function(
-        [inputs, targets, mask, inputs_diff, window], test_cost, allow_input_downcast=True)
+        [visual_input, targets, mask, audio_input, window], test_cost, allow_input_downcast=True)
 
-    val_fn = theano.function([inputs, mask, inputs_diff, window], test_predictions, allow_input_downcast=True)
+    val_fn = theano.function([visual_input, mask, audio_input, window], test_predictions, allow_input_downcast=True)
 
     # We'll train the network with 10 epochs of 30 minibatches each
     print('begin training...')
@@ -442,12 +379,12 @@ def main():
     # We'll use this "validation set" to periodically check progress
     X_val, y_val, mask_val, idxs_val = next(val_datagen)
     integral_lens_val = compute_integral_len(val_vidlens)
-    X_diff_val = gen_seq_batch_from_idx(val_X_diff, idxs_val, val_vidlens, integral_lens_val, np.max(val_vidlens))
+    X_diff_val = gen_seq_batch_from_idx(val_X_audio, idxs_val, val_vidlens, integral_lens_val, np.max(val_vidlens))
 
     # we use the test set to check final classification rate
     X_test, y_test, mask_test, idxs_test = next(test_datagen)
     integral_lens_test = compute_integral_len(test_vidlens)
-    X_diff_test = gen_seq_batch_from_idx(test_X_diff, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
+    X_diff_test = gen_seq_batch_from_idx(test_X_audio, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
 
     # reshape the targets for validation
     y_val_evaluate = y_val
@@ -460,10 +397,10 @@ def main():
             # repeat targets based on max sequence len
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
-            X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
+            X_diff = gen_seq_batch_from_idx(train_X_audio, batch_idxs,
                                             train_vidlens, integral_lens, np.max(train_vidlens))
-            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam with learning rate {:.4f}'.format(
+                epoch + 1, i + 1, EPOCH_SIZE, len(X), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
             train(X, y, m, X_diff, WINDOW_SIZE)

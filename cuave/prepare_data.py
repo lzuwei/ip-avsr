@@ -170,7 +170,7 @@ def main():
     if options['diff_image']:
         X_train, X_val, X_test = diff_image(X_train, X_val, X_test, train_vid_lens, val_vid_lens, test_vid_lens)
 
-    visualize_images(X_test[500:536], (30, 50))
+    # visualize_images(X_test[500:536], (30, 50))
 
     data['trData'] = X_train
     data['valData'] = X_val

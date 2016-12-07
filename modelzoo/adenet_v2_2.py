@@ -3,18 +3,10 @@ import theano.tensor as T
 import lasagne as las
 from lasagne.layers import InputLayer, LSTMLayer, DenseLayer, ConcatLayer, SliceLayer, ReshapeLayer, ElemwiseSumLayer
 from lasagne.layers import Gate, DropoutLayer, GlobalPoolLayer
-from lasagne.nonlinearities import tanh, sigmoid, linear
-from lasagne.layers import batch_norm, BatchNormLayer
+from lasagne.nonlinearities import tanh, sigmoid, linear, rectify, leaky_rectify
 
 from custom.layers import DeltaLayer, AdaptiveElemwiseSumLayer
-
-
-def create_pretrained_encoder(weights, biases, names, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name=names[0])
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name=names[1])
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name=names[2])
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name=names[3])
-    return l_4
+from modelzoo.pretrained_encoder import create_pretrained_encoder
 
 
 def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=True):
@@ -48,6 +40,8 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
 def extract_weights(ae):
     weights = []
     biases = []
+    shapes = [2000, 1000, 500, 50]
+    nonlinearities = [rectify, rectify, rectify, linear]
     ae_layers = ae.get_all_layers()
     weights.append(ae_layers[1].W.astype('float32'))
     weights.append(ae_layers[2].W.astype('float32'))
@@ -58,7 +52,7 @@ def extract_weights(ae):
     biases.append(ae_layers[3].b.astype('float32'))
     biases.append(ae_layers[4].b.astype('float32'))
 
-    return weights, biases
+    return weights, biases, shapes, nonlinearities
 
 
 def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
@@ -66,8 +60,8 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
                  output_classes=26, fusiontype='concat', w_init_fn=las.init.Orthogonal(),
                  use_peepholes=True):
 
-    bn_weights, bn_biases = extract_weights(ae)
-    diff_weights, diff_biases = extract_weights(diff_ae)
+    bn_weights, bn_biases, bn_shapes, bn_nonlinearities = extract_weights(ae)
+    diff_weights, diff_biases, diff_shapes, diff_nonlinearities = extract_weights(diff_ae)
 
     gate_parameters = Gate(
         W_in=w_init_fn, W_hid=w_init_fn,
@@ -89,8 +83,8 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
     symbolic_seqlen_diff = l_diff.input_var.shape[1]
 
     l_reshape1_raw = ReshapeLayer(l_raw, (-1, input_shape[-1]), name='reshape1_raw')
-    l_encoder_raw = create_pretrained_encoder(bn_weights, bn_biases, ['fc1_raw', 'fc2_raw', 'fc3_raw', 'bottleneck_raw'],
-                                              l_reshape1_raw)
+    l_encoder_raw = create_pretrained_encoder(l_reshape1_raw, bn_weights, bn_biases, bn_shapes, bn_nonlinearities,
+                                              ['fc1_raw', 'fc2_raw', 'fc3_raw', 'bottleneck_raw'])
     raw_len = las.layers.get_output_shape(l_encoder_raw)[-1]
 
     l_reshape2_raw = ReshapeLayer(l_encoder_raw,
@@ -100,9 +94,9 @@ def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
 
     # diff images
     l_reshape1_diff = ReshapeLayer(l_diff, (-1, diff_shape[-1]), name='reshape1_diff')
-    l_encoder_diff = create_pretrained_encoder(diff_weights, diff_biases,
-                                               ['fc1_diff', 'fc2_diff', 'fc3_diff', 'bottleneck_diff'],
-                                               l_reshape1_diff)
+    l_encoder_diff = create_pretrained_encoder(l_reshape1_diff, diff_weights, diff_biases, diff_shapes,
+                                               diff_nonlinearities,
+                                               ['fc1_diff', 'fc2_diff', 'fc3_diff', 'bottleneck_diff'])
     diff_len = las.layers.get_output_shape(l_encoder_diff)[-1]
     l_reshape2_diff = ReshapeLayer(l_encoder_diff,
                                    (symbolic_batchsize_diff, symbolic_seqlen_diff, diff_len),

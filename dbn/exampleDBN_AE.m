@@ -6,7 +6,8 @@ type = 1; % 1 is AE, 2 is classifier,
 % train_x = double(train_x(1:50000,:));
 % train_y = double(train_y(1:50000,:));
 
-train_x = dataMatrix;
+%train_x = dataMatrix;
+train_x = trData; %vertcat(trData, valData, testData);
 % train_x = cat(1, testDataResized, trainDataResized);
 
 
@@ -31,8 +32,8 @@ end
 % parameters used for visualisation of first layer weights
 visParams.noExamplesPerSubplot = 50; % number of images to show per row
 visParams.noSubplots = floor(hiddenLayers(1) / visParams.noExamplesPerSubplot);
-visParams.col = 44; %44;% number columns of image
-visParams.row = 26; %26 number rows of image
+visParams.col = 50; %44;% number columns of image
+visParams.row = 30; %26 number rows of image
 
 
 
@@ -47,7 +48,7 @@ train_x = normaliseData(dbnParams.inputActivationFunction, train_x,[]);
 [dbn, errorPerBatch, errorPerSample] = trainDBN(train_x, dbnParams);
 
 % visualise weights of first layer
-visualiseHiddenLayerWeights(dbn.W{1},visParams.col,visParams.row,visParams.noSubplots);
+% visualiseHiddenLayerWeights(dbn.W{1},visParams.col,visParams.row,visParams.noSubplots);
 
 nn = unfoldDBNtoNN(dbnParams, dbn, outputSize);
 

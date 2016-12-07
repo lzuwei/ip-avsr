@@ -14,8 +14,7 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
-from utils.regularization import early_stop
-from utils.draw_net import draw_to_file
+from utils.regularization import early_stop2
 
 import theano.tensor as T
 import theano
@@ -532,7 +531,7 @@ def main():
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
 
-        if epoch >= validation_window and early_stop(val_window):
+        if epoch >= validation_window and early_stop2(val_window, best_val, validation_window):
             break
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']

@@ -7,14 +7,7 @@ from lasagne.nonlinearities import tanh, sigmoid, linear
 from lasagne.layers import batch_norm, BatchNormLayer
 
 from custom.layers import DeltaLayer, AdaptiveElemwiseSumLayer
-
-
-def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='bottleneck')
-    return l_4
+from modelzoo.pretrained_encoder import create_pretrained_encoder
 
 
 def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=True):
@@ -73,6 +66,8 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     dbn_layers = dbn.get_all_layers()
     weights = []
     biases = []
+    shapes = [2000, 1000, 500, 50]
+    nonlinearities = [rectify, rectify, rectify, linear]
     weights.append(dbn_layers[1].W.astype('float32'))
     weights.append(dbn_layers[2].W.astype('float32'))
     weights.append(dbn_layers[3].W.astype('float32'))
@@ -100,7 +95,8 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     symbolic_seqlen = l_in.input_var.shape[1]
 
     l_reshape1 = ReshapeLayer(l_in, (-1, input_shape[-1]), name='reshape1')
-    l_encoder = create_pretrained_encoder(weights, biases, l_reshape1)
+    l_encoder = create_pretrained_encoder(l_reshape1, weights, biases, shapes, nonlinearities,
+                                          ['fc1', 'fc2', 'fc3', 'bottleneck'])
     encoder_len = las.layers.get_output_shape(l_encoder)[-1]
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')

@@ -1,7 +1,7 @@
 import theano.tensor as T
 
 import lasagne as las
-from lasagne.layers import InputLayer, DenseLayer, SliceLayer, ReshapeLayer, ElemwiseSumLayer
+from lasagne.layers import InputLayer, DenseLayer, ReshapeLayer, ElemwiseSumLayer
 from lasagne.layers import Gate
 from lasagne.nonlinearities import tanh, linear, rectify
 
@@ -45,13 +45,16 @@ def create_model_using_pretrained_encoder(weights, biases, input_shape, input_va
     # Merge layers take in lists of layers to merge as input.
     l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
 
-    l_forward_slice1 = SliceLayer(l_sum1, -1, 1, name='slice1')
+    # reshape, flatten to 2 dimensions to run softmax on all timesteps
+    l_reshape3 = ReshapeLayer(l_sum1, (-1, lstm_size), name='reshape3')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,
     # so we'll use a the number of classes.
-    l_out = DenseLayer(
-        l_forward_slice1, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='output')
+    l_softmax = DenseLayer(
+        l_reshape3, num_units=output_classes, nonlinearity=las.nonlinearities.softmax, name='softmax')
+
+    l_out = ReshapeLayer(l_softmax, (-1, symbolic_seqlen, output_classes), name='output')
 
     return l_out
 

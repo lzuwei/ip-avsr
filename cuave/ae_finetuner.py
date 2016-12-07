@@ -29,7 +29,55 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def load_ae(path, train_params):
+def load_ae_encoder(path, nonlinearity=sigmoid):
+    nn = sio.loadmat(path)
+    w1 = nn['w1']
+    w2 = nn['w2']
+    w3 = nn['w3']
+    w4 = nn['w4']
+    b1 = nn['b1'][0]
+    b2 = nn['b2'][0]
+    b3 = nn['b3'][0]
+    b4 = nn['b4'][0]
+
+    layers = [
+        (InputLayer, {'name': 'input', 'shape': (None, 1500)}),
+        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': nonlinearity, 'W': w1, 'b': b1}),
+        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': nonlinearity, 'W': w2, 'b': b2}),
+        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': nonlinearity, 'W': w3, 'b': b3}),
+        (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4})
+    ]
+
+    '''
+    dbn = NeuralNet(
+        layers=layers,
+        max_epochs=30,
+        objective_loss_function=squared_error,
+        update=nesterov_momentum,
+        regression=True,
+        verbose=1,
+        update_learning_rate=0.001,
+        update_momentum=0.05,
+        objective_l2=0.005,
+    )
+    '''
+
+    dbn = NeuralNet(
+        layers=layers,
+        max_epochs=10,
+        objective_loss_function=squared_error,
+        update=adadelta,
+        regression=True,
+        verbose=1,
+        update_learning_rate=0.01,
+        # update_learning_rate=0.001,
+        # update_momentum=0.05,
+        objective_l2=0.005,
+    )
+    return dbn
+
+
+def load_ae(path, train_params, nonlinearity=sigmoid):
     """
     load a pretrained dbn from path
     :param path: path to the .mat dbn
@@ -56,13 +104,13 @@ def load_ae(path, train_params):
 
     layers = [
         (InputLayer, {'name': 'input', 'shape': (None, 1500)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
+        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': nonlinearity, 'W': w1, 'b': b1}),
+        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': nonlinearity, 'W': w2, 'b': b2}),
+        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': nonlinearity, 'W': w3, 'b': b3}),
         (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
+        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': nonlinearity, 'W': w5, 'b': b5}),
+        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': nonlinearity, 'W': w6, 'b': b6}),
+        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': nonlinearity, 'W': w7, 'b': b7}),
         (DenseLayer, {'name': 'output', 'num_units': 1500, 'nonlinearity': linear, 'W': w8, 'b': b8}),
     ]
 
@@ -125,7 +173,8 @@ def main():
 
     if do_finetune:
         print('performing finetuning...')
-        ae = load_ae(ae_pretrained, train_params)
+        # ae = load_ae(ae_pretrained, train_params, nonlinearity=rectify)
+        ae = load_ae_encoder(ae_pretrained, nonlinearity=rectify)
         ae.initialize()
         # ae.fit(train_data, train_data)
         # res = ae.predict(test_data)

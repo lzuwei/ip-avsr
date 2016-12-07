@@ -29,7 +29,7 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def load_ae(path, train_params):
+def load_ae(path, train_params, nonlinearity=sigmoid):
     """
     load a pretrained dbn from path
     :param path: path to the .mat dbn
@@ -56,13 +56,13 @@ def load_ae(path, train_params):
 
     layers = [
         (InputLayer, {'name': 'input', 'shape': (None, 1200)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
+        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': nonlinearity, 'W': w1, 'b': b1}),
+        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': nonlinearity, 'W': w2, 'b': b2}),
+        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': nonlinearity, 'W': w3, 'b': b3}),
         (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
+        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': nonlinearity, 'W': w5, 'b': b5}),
+        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': nonlinearity, 'W': w6, 'b': b6}),
+        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': nonlinearity, 'W': w7, 'b': b7}),
         (DenseLayer, {'name': 'output', 'num_units': 1200, 'nonlinearity': linear, 'W': w8, 'b': b8}),
     ]
 
@@ -134,12 +134,12 @@ def main():
 
     if do_finetune:
         print('performing finetuning...')
-        ae = load_ae(ae_pretrained, train_params)
+        ae = load_ae(ae_pretrained, train_params, rectify)
         ae.initialize()
         #ae.fit(train_data, train_data)
-        #res = ae.predict(test_data)
-        # print(res.shape)
-        #visualize_reconstruction(test_data[300:336], res[300:336])
+        res = ae.predict(test_data)
+        print(res.shape)
+        visualize_reconstruction(test_data[300:336], res[300:336])
 
     if save_finetune:
         print('saving finetuned encoder: {}...'.format(ae_finetuned))

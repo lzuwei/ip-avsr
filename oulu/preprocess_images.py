@@ -3,79 +3,82 @@ preprocess the images
 """
 import sys
 sys.path.append('../')
-import numpy as np
 import argparse
 from utils.io import load_mat_file, save_mat
-from utils.preprocessing import normalize_input, reorder_data, concat_first_second_deltas
-from utils.preprocessing import sequencewise_mean_image_subtraction, compute_dct_features, compute_diff_images
-from utils.plotting_utils import visualize_images
+from utils.preprocessing import normalize_input
+from utils.preprocessing import sequencewise_mean_image_subtraction, compute_diff_images
+from utils.plotting_utils import reshape_images_order
 
 
-def remove_mean(data):
-    """
-    remove mean image from data, sequence-wise mean removal,
-    perform dct on images followed by normalization of input
-    :param data: image data
-    :return:
-    """
-    X = data['dataMatrix'].astype('float32')
-    vidlens = data['videoLengthVec'].reshape((-1,))
-    # realign to 'C' Format
-    X = reorder_data(X, (26, 44))
-    X = sequencewise_mean_image_subtraction(X, vidlens)
-    X_fortran = reorder_data(X, (26, 44), 'c', 'f')
-    visualize_images(X[700:764], shape=(26, 44))
-    dct_feats = compute_dct_features(X, (26, 44), 30, method='zigzag')
-    dct_data = dict()
-    dct_data['dctFeatures'] = concat_first_second_deltas(dct_feats, vidlens)
-    # samplewise normalize
-    X = normalize_input(X, centralize=True)
-    data['dataMatrix'] = X
-    data['dataMatrixF'] = X_fortran
-    save_mat(data, 'data/allMouthROIsMeanRemoved_frontal.mat')
-    save_mat(dct_data, 'data/dctFeatMeanRemoved_OuluVs2.mat')
+def reorder_images(data, shape):
+    data = reshape_images_order(data, shape)
+    return data
 
 
-def diff_image(data):
-    X = data['dataMatrix'].astype('float32')
-    vidlens = data['videoLengthVec'].reshape((-1,))
-    # realign to 'C' Format
-    X = reorder_data(X, (26, 44))
-    X = compute_diff_images(X, vidlens)
-    visualize_images(X[700:764], shape=(26, 44))
-    data['dataMatrix'] = X
-    save_mat(data, 'data/allMouthROIsDiffImage_frontal.mat')
+def samplewise_normalize(data):
+    data = normalize_input(data)
+    return data
+
+
+def remove_mean(data, vidlens):
+    data = sequencewise_mean_image_subtraction(data, vidlens)
+    return data
+
+
+def diff_image(data, vidlens):
+    data = compute_diff_images(data, vidlens)
+    return data
 
 
 def parse_options():
     options = dict()
-    options['operation'] = ''
+    options['remove_mean'] = False
+    options['diff_image'] = False
+    options['samplewise_norm'] = False
+    options['no_reorder'] = False
+    options['output'] = None
     parser = argparse.ArgumentParser()
-    parser.add_argument('--operation', help='remove_mean, diff_image, normalize')
+    parser.add_argument('--remove_mean', action='store_true', help='remove mean image')
+    parser.add_argument('--diff_image', action='store_true', help='compute difference of image')
+    parser.add_argument('--samplewise_norm', action='store_true', help='samplewise normalize')
+    parser.add_argument('--no_reorder', action='store_true', help='disable data reordering from f to c')
+    parser.add_argument('--output', help='write output to .mat file')
+    parser.add_argument('input', nargs='+', help='input ouluvs2 .mat file to preprocess')
     args = parser.parse_args()
-    if args.operation:
-        options['operation'] = args.operation
+    if args.remove_mean:
+        options['remove_mean'] = args.remove_mean
+    if args.diff_image:
+        options['diff_image'] = args.diff_image
+    if args.samplewise_norm:
+        options['samplewise_norm'] = args.samplewise_norm
+    if args.no_reorder:
+        options['no_reorder'] = args.no_reorder
+    if args.output:
+        options['output'] = args.output
+    if args.input:
+        options['input'] = args.input[0]
     return options
-
-
-def normalize(data):
-    X = data['dataMatrix'].astype('float32')
-    # realign to 'C' Format
-    X = reorder_data(X, (26, 44))
-    visualize_images(X[700:764], shape=(26, 44))
-    X = normalize_input(X)
-    visualize_images(X[700:764], shape=(26, 44))
 
 
 def main():
     options = parse_options()
-    data = load_mat_file('data/allMouthROIsResized_frontal.mat')
-    if options['operation'] == 'normalize':
-        normalize(data)
-    if options['operation'] == 'remove_mean':
-        remove_mean(data)
-    elif options['operation'] == 'diff_image':
-        diff_image(data)
+    data = load_mat_file(options['input'])
+    dataMatrix = data['dataMatrix'].astype('float32')
+    vidlens = data['videoLengthVec'].reshape((-1,))
+
+    if not options['no_reorder']:
+        dataMatrix = reorder_images(dataMatrix, (26, 44))
+    if options['samplewise_norm']:
+        dataMatrix = samplewise_normalize(dataMatrix)
+    if options['remove_mean']:
+        dataMatrix = remove_mean(dataMatrix, vidlens)
+    if options['diff_image']:
+        dataMatrix = diff_image(dataMatrix, vidlens)
+
+    data['dataMatrix'] = dataMatrix
+    if options['output']:
+        save_mat(data, options['output'])
+    print('data prepared!')
 
 
 if __name__ == '__main__':
