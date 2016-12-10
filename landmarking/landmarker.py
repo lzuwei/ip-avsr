@@ -1,26 +1,25 @@
 import warnings
-import numpy as np
-import os, errno
+import os
+import errno
 import csv
+import argparse
 
 import menpo.io as mio
 from menpo.visualize import print_progress
-from menpo.feature import igo, fast_dsift
-from menpo.landmark import labeller, face_ibug_68_to_face_ibug_68
 from menpodetect.dlib import load_dlib_frontal_face_detector
 from menpofit.dlib import DlibWrapper
-from menpofit.aam import HolisticAAM, LucasKanadeAAMFitter, ModifiedAlternatingInverseCompositional
-from menpowidgets import visualize_images
 
 # constants, change according to system
-CUAVE_DIR = '/Volumes/New Volume/Thesis/cuave/individuals'
 FACE_MODEL_PATH = '../config/shape_predictor_68_face_landmarks.dat'
 EXT = ['.mp4', '.mov', '.mpg']
+NO_LANDMARKS = 68
 
 
 def find_all_videos(dir, ext=EXT, relpath=False):
+    # get the absolute path of the file
+    abspath = os.path.abspath(dir)
     videofiles = []
-    find_all_videos_impl(dir, videofiles, ext)
+    find_all_videos_impl(abspath, videofiles, ext)
     if relpath:
         for i, f in enumerate(videofiles):
             videofiles[i] = f[len(dir) + 1:]
@@ -75,8 +74,15 @@ def fill_row(outwriter, frame_no, row):
 
 def process_video(file, dest):
     if is_video(file):
-        create_dir(os.path.dirname(dest))
-        frames = mio.import_video(file, normalise=False)
+        try:
+            frames = mio.import_video(file, normalise=False)
+        except IOError:
+            warnings.warn('IO error reading video file {}, '.format(file) +
+                          'the file may be corrupted or the video format is unsupported, skipping...')
+            return
+        # check if directory is non empty
+        if os.path.dirname(dest):
+            create_dir(os.path.dirname(dest))
         print('{} contains {} frames'.format(file, len(frames)))
         print('writing landmarks to {}...'.format(dest))
         frames = frames.map(fit_image)
@@ -92,26 +98,63 @@ def process_video(file, dest):
                         # initial_shape = frames[i - 1].landmarks['final_shape'].lms
                         # fitting_result = fit_image.fitter.fit_from_shape(frame, initial_shape)
                         # frame.landmarks['final_shape'] = fitting_result.final_shape
-                        landmarks = [-1] * 136
+                        landmarks = [-1] * NO_LANDMARKS*2
                     else:
                         lmg = frame.landmarks['final_shape']
-                        landmarks = lmg['all'].points.reshape((136,)).tolist()  # reshape to 136 points
+                        landmarks = lmg['all'].points.reshape((NO_LANDMARKS*2,)).tolist()  # reshape to 136 points
                     fill_row(outwriter, i, landmarks)
             except Exception as e:
                 warnings.warn('Runtime Error at frame {}'.format(i))
                 print('initializing landmarks to -1s...')
-                fill_row(outwriter, i, [-1] * 136)
+                fill_row(outwriter, i, [-1] * NO_LANDMARKS*2)
+
+
+def parse_options():
+    options = dict()
+    parser = argparse.ArgumentParser()
+    options['model'] = '../config/shape_predictor_68_face_landmarks.dat'
+    parser.add_argument('--input_dir', help='directory to search for videos, supported formats [.mov, .mpg, .mp4]')
+    parser.add_argument('--output_dir', help='output directory to store the landmarks')
+    parser.add_argument('--model', help='location of landmark model file. '
+                                        'Default: ../config/shape_predictor_68_face_landmarks.dat')
+    parser.add_argument('--file', help='perform landmarking on a single file')
+    parser.add_argument('--output', help='output landmark file name, if not specified '
+                                         'creates landmark file in current directory')
+    args = parser.parse_args()
+    if args.input_dir:
+        options['input_dir'] = args.input_dir
+    if args.output_dir:
+        options['output_dir'] = args.output_dir
+    if args.model:
+        options['model'] = args.model
+    if args.file:
+        options['file'] = args.file
+    if args.output:
+        options['output'] = args.output
+    return options
 
 
 if __name__ == '__main__':
-    print('Generating Landmarks for CUAVE Dataset...')
+    options = parse_options()
     fit_image.detect = load_dlib_frontal_face_detector()
-    fit_image.fitter = DlibWrapper(FACE_MODEL_PATH)
-    videofiles = find_all_videos(os.path.join(CUAVE_DIR, 'videos'), relpath=True)
-    print(videofiles)
-    exit()
-    for video in videofiles[7:]:
-        landmarkfile = os.path.splitext(video)[0] + '.csv'
-        process_video(os.path.join(CUAVE_DIR, 'videos', video),
-                      os.path.join(CUAVE_DIR, 'landmarks', landmarkfile))
+    fit_image.fitter = DlibWrapper(options['model'])
+
+    if 'file' in options:
+        video_file = options['file']
+        video_file_basename = os.path.basename(video_file)
+        print('Generating Landmarks from {}'.format(video_file))
+        output = options['output'] if 'output' in options else os.path.splitext(video_file_basename)[0] + '.csv'
+        process_video(video_file, output)
+        exit()
+
+    print('Generating Landmarks from {}'.format(options['input_dir']))
+    videofiles = find_all_videos(options['input_dir'], relpath=False)
+    videofiles.sort()
+    print('Found {} video(s)...'.format(len(videofiles)))
+    input_dir = os.path.abspath(options['input_dir'])
+    output_dir = os.path.abspath(options['output_dir'])
+    for video in videofiles:
+        relative_path = video[len(input_dir) + 1:]
+        landmarkfile = os.path.join(output_dir, os.path.splitext(relative_path)[0] + '.csv')
+        process_video(video, landmarkfile)
     print('All Done!')

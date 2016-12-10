@@ -17,13 +17,11 @@ from utils.io import *
 
 import theano.tensor as T
 import theano
-from custom.custom import DeltaLayer
 from nolearn.lasagne import NeuralNet
 
 import lasagne as las
 import numpy as np
-from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer
+from lasagne.layers import InputLayer, DenseLayer
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad
 from lasagne.objectives import squared_error

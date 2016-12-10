@@ -261,6 +261,12 @@ def main():
     fusiontype = config.get('models', 'fusiontype')
     lstm_size = config.getint('models', 'lstm_size')
     output_classes = config.getint('models', 'output_classes')
+    nonlinearity = options['nonlinearity'] if 'nonlinearity' in options else config.get('models', 'nonlinearity')
+
+    if nonlinearity == 'sigmoid':
+        nonlinearity = sigmoid
+    if nonlinearity == 'rectify':
+        nonlinearity = rectify
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
@@ -325,12 +331,12 @@ def main():
     visual_net = avnet.create_pretrained_substream(visual_weights, visual_biases,
                                                    (None, None, input_dimension), visual_input,
                                                    (None, None), mask, 'visual',
-                                                   lstm_size, window, rectify, weight_init_fn, use_peepholes)
+                                                   lstm_size, window, nonlinearity, weight_init_fn, use_peepholes)
 
     audio_net = avnet.create_pretrained_substream(audio_weights, audio_biases,
                                                   (None, None, input_dimension2), audio_input,
                                                   (None, None), mask, 'audio',
-                                                  lstm_size, window, rectify, weight_init_fn, use_peepholes)
+                                                  lstm_size, window, nonlinearity, weight_init_fn, use_peepholes)
     network, l_fuse = avnet.create_model([visual_net, audio_net], (None, None), mask, lstm_size, output_classes,
                                          fusiontype, weight_init_fn, use_peepholes)
 

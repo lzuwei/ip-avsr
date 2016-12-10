@@ -83,6 +83,29 @@ def split_videolen(videolen_vec, iter_vec):
     return train_vidlen, test_vidlen
 
 
+def split_data(data_matrix, split_idx, len_vec=None):
+    """
+    split the data according to the split index provided
+    :param data_matrix: numpy array of data to split
+    :param split_idx: an integer list of indexes to extract
+    :param len_vec: for sequences, split the data according to the sequence length provided
+    :return: split data
+    """
+    assert len(split_idx) == len(data_matrix)
+    if len_vec is None:
+        return data_matrix[split_idx]
+    else:
+        # compute the cumulative total sum of the lec_vec
+        size_split = np.sum(len_vec[split_idx])
+        split = np.zeros(data_matrix.shape[:-1] + (size_split,), dtype=data_matrix.dtype)
+        offset = np.zeros((len(len_vec)))
+        for i in range(1, len(len_vec)):
+            offset[i] = offset[i - 1] + len_vec[i]
+        for i, idx in enumerate(split_idx):
+            split[i] = data_matrix[idx:len_vec[idx]]
+        return split
+
+
 def resize_img(img, orig_dim=(60, 80), dim=(30, 40), reshape=True, order='F'):
     """
     Resizes the image to new dimensions

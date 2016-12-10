@@ -215,6 +215,14 @@ def main():
     val_y = data['valTargetsVec'].astype('int').reshape((-1,)) + 1
     test_y = data['testTargetsVec'].astype('int').reshape((-1,)) + 1
 
+    train_X = reorder_data(train_X, (30, 50))
+    val_X = reorder_data(val_X, (30, 50))
+    test_X = reorder_data(test_X, (30, 50))
+
+    train_X = sequencewise_mean_image_subtraction(train_X, train_vidlens)
+    val_X = sequencewise_mean_image_subtraction(val_X, val_vidlens)
+    test_X = sequencewise_mean_image_subtraction(test_X, test_vidlens)
+
     weights, biases = load_dbn(ae_pretrained)
 
     train_X = normalize_input(train_X, centralize=True)

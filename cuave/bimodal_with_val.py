@@ -15,6 +15,7 @@ from utils.datagen import *
 from utils.io import *
 from utils.regularization import early_stop2
 from custom.objectives import temporal_softmax_loss
+from custom.nonlinearities import *
 
 import theano.tensor as T
 import theano
@@ -180,6 +181,7 @@ def main():
     no_coeff = config.getint('models', 'no_coeff')
     output_classes = config.getint('models', 'output_classes')
     lstm_size = config.getint('models', 'lstm_size')
+    nonlinearity = select_nonlinearity(config.get('models', 'nonlinearity'))
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
@@ -218,6 +220,18 @@ def main():
     val_y = data['valTargetsVec'].astype('int').reshape((-1,)) + 1
     test_y = data['testTargetsVec'].astype('int').reshape((-1,)) + 1
 
+    train_X = reorder_data(train_X, (30, 50))
+    val_X = reorder_data(val_X, (30, 50))
+    test_X = reorder_data(test_X, (30, 50))
+
+    train_X = sequencewise_mean_image_subtraction(train_X, train_vidlens)
+    val_X = sequencewise_mean_image_subtraction(val_X, val_vidlens)
+    test_X = sequencewise_mean_image_subtraction(test_X, test_vidlens)
+
+    train_X = normalize_input(train_X)
+    val_X = normalize_input(val_X)
+    test_X = normalize_input(test_X)
+
     # featurewise normalize dct features
     train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
     val_dct = (val_dct - dct_mean) / dct_std
@@ -244,7 +258,7 @@ def main():
                                                                      inputs, (None, None), mask,
                                                                      (None, None, no_coeff*3), dct,
                                                                      lstm_size, window, output_classes, fusiontype,
-                                                                     weight_init_fn, use_peepholes)
+                                                                     weight_init_fn, use_peepholes, nonlinearity)
 
     print_network(network)
     print('compiling model...')
