@@ -79,6 +79,9 @@ def process_video(file, dest):
         except IOError:
             warnings.warn('IO error reading video file {}, '.format(file) +
                           'the file may be corrupted or the video format is unsupported, skipping...')
+        except ValueError as e:
+            warnings.warn('Value Error reading video file {}, '.format(file) +
+                          e.message)
             return
         # check if directory is non empty
         if os.path.dirname(dest):

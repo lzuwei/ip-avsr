@@ -11,32 +11,10 @@ from modelzoo.pretrained_encoder import create_pretrained_encoder
 
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
                  dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26, fusiontype='sum', w_init_fn=las.init.Orthogonal(),
-                 use_peepholes=True, nonlinearities=rectify):
+                 output_classes=26, fusiontype='sum', w_init_fn=las.init.GlorotUniform(),
+                 use_peepholes=False, nonlinearities=rectify):
 
-    dbn_layers = dbn.get_all_layers()
-    weights = []
-    biases = []
-    weights.append(dbn_layers[1].W.astype('float32'))
-    weights.append(dbn_layers[2].W.astype('float32'))
-    weights.append(dbn_layers[3].W.astype('float32'))
-    weights.append(dbn_layers[4].W.astype('float32'))
-    biases.append(dbn_layers[1].b.astype('float32'))
-    biases.append(dbn_layers[2].b.astype('float32'))
-    biases.append(dbn_layers[3].b.astype('float32'))
-    biases.append(dbn_layers[4].b.astype('float32'))
-    return create_model_from_pretrained_encoder(weights, biases, input_shape, input_var, mask_shape, mask_var,
-                                                dct_shape, dct_var, lstm_size, win, output_classes, fusiontype,
-                                                w_init_fn, use_peepholes, nonlinearities)
-
-
-def create_model_from_pretrained_encoder(weights, biases, input_shape, input_var, mask_shape, mask_var,
-                                         dct_shape, dct_var, lstm_size=250, win=T.iscalar('theta)'),
-                                         output_classes=26, fusiontype='sum', w_init_fn=las.init.Orthogonal(),
-                                         use_peepholes=True, nonlinearities=rectify):
-
-    shapes = [2000, 1000, 500, 50]
-    nonlinearities = [nonlinearities, nonlinearities, nonlinearities, linear]
+    weights, biases, shapes, nonlinearities = dbn
     names = ['fc1', 'fc2', 'fc3', 'bottleneck']
 
     gate_parameters = Gate(

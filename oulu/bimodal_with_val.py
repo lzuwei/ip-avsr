@@ -14,17 +14,16 @@ from utils.plotting_utils import *
 from utils.data_structures import circular_list
 from utils.datagen import *
 from utils.io import *
+from utils.regularization import early_stop2
+from custom.objectives import temporal_softmax_loss
 
 import theano.tensor as T
 import theano
-from nolearn.lasagne import NeuralNet
 
 import lasagne as las
 import numpy as np
-from lasagne.layers import InputLayer, DenseLayer
-from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
-from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint, adagrad
-from lasagne.objectives import squared_error
+from lasagne.nonlinearities import linear, sigmoid, rectify
+from lasagne.updates import adam 
 
 from modelzoo import adenet_v2, adenet_v1, adenet_v2_1
 from utils.plotting_utils import print_network
@@ -42,68 +41,16 @@ def load_dbn(path='models/oulu_ae.mat'):
     w2 = nn['w2']
     w3 = nn['w3']
     w4 = nn['w4']
-    w5 = nn['w5']
-    w6 = nn['w6']
-    w7 = nn['w7']
-    w8 = nn['w8']
     b1 = nn['b1'][0]
     b2 = nn['b2'][0]
     b3 = nn['b3'][0]
     b4 = nn['b4'][0]
-    b5 = nn['b5'][0]
-    b6 = nn['b6'][0]
-    b7 = nn['b7'][0]
-    b8 = nn['b8'][0]
 
-    layers = [
-        (InputLayer, {'name': 'input', 'shape': (None, 1144)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
-        (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
-        (DenseLayer, {'name': 'output', 'num_units': 1144, 'nonlinearity': linear, 'W': w8, 'b': b8}),
-    ]
-
-    dbn = NeuralNet(
-        layers=layers,
-        max_epochs=30,
-        objective_loss_function=squared_error,
-        update=nesterov_momentum,
-        regression=True,
-        verbose=1,
-        update_learning_rate=0.001,
-        update_momentum=0.05,
-        objective_l2=0.005,
-    )
-    return dbn
-
-
-def extract_encoder(dbn):
-    dbn_layers = dbn.get_all_layers()
-    encoder = NeuralNet(
-        layers=[
-            (InputLayer, {'name': 'input', 'shape': dbn_layers[0].shape}),
-            (DenseLayer, {'name': 'l1', 'num_units': dbn_layers[1].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[1].W, 'b': dbn_layers[1].b}),
-            (DenseLayer, {'name': 'l2', 'num_units': dbn_layers[2].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[2].W, 'b': dbn_layers[2].b}),
-            (DenseLayer, {'name': 'l3', 'num_units': dbn_layers[3].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[3].W, 'b': dbn_layers[3].b}),
-            (DenseLayer, {'name': 'l4', 'num_units': dbn_layers[4].num_units, 'nonlinearity': linear,
-                          'W': dbn_layers[4].W, 'b': dbn_layers[4].b}),
-        ],
-        update=nesterov_momentum,
-        update_learning_rate=0.001,
-        update_momentum=0.5,
-        objective_l2=0.005,
-        verbose=1,
-        regression=True
-    )
-    encoder.initialize()
-    return encoder
+    weights = [w1, w2, w3, w4]
+    biases = [b1, b2, b3, b4]
+    nonlinearities = [rectify, rectify, rectify, linear]
+    shapes = [2000, 1000, 500, 50]
+    return weights, biases, shapes, nonlinearities
 
 
 def configure_theano():
@@ -195,14 +142,6 @@ def read_data_split_file(path, sep=','):
     return subjects
 
 
-def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='encoder')
-    return l_4
-
-
 def evaluate_model(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
     """
     Evaluate a lstm model
@@ -219,6 +158,42 @@ def evaluate_model(X_val, y_val, mask_val, dct_val, window_size, eval_fn):
     confusion_matrix = np.zeros((no_gps, no_gps), dtype='int')
 
     ix = np.argmax(output, axis=1)
+    c = ix == y_val
+    classification_rate = np.sum(c == True) / float(len(c))
+
+    # construct the confusion matrix
+    for i, target in enumerate(y_val):
+        confusion_matrix[target, ix[i]] += 1
+
+    return classification_rate, confusion_matrix
+
+
+def evaluate_model2(X_val, y_val, mask_val, X_diff_val, window_size, eval_fn):
+    """
+    Evaluate a lstm model
+    :param X_val: validation inputs
+    :param y_val: validation targets
+    :param mask_val: input masks for variable sequences
+    :param X_diff_val: validation inputs diff image
+    :param window_size: size of window for computing delta coefficients
+    :param eval_fn: evaluation function
+    :return: classification rate, confusion matrix
+    """
+    output = eval_fn(X_val, mask_val, X_diff_val, window_size)
+    num_classes = output.shape[-1]
+    confusion_matrix = np.zeros((num_classes, num_classes), dtype='int')
+    ix = np.zeros((X_val.shape[0],), dtype='int')
+    seq_lens = np.sum(mask_val, axis=-1)
+
+    # for each example, we only consider argmax of the seq len
+    votes = np.zeros((10,), dtype='int')
+    for i, eg in enumerate(output):
+        predictions = np.argmax(eg[:seq_lens[i]], axis=-1)
+        for cls in range(num_classes):
+            count = (predictions == cls).sum(axis=-1)
+            votes[cls] = count
+        ix[i] = np.argmax(votes)
+
     c = ix == y_val
     classification_rate = np.sum(c == True) / float(len(c))
 
@@ -261,11 +236,30 @@ def main():
     data = load_mat_file(config.get('data', 'images'))
     dct_data = load_mat_file(config.get('data', 'dct'))
     ae_pretrained = config.get('models', 'pretrained')
-    ae_finetuned = config.get('models', 'finetuned')
     fusiontype = config.get('models', 'fusiontype')
-    learning_rate = float(config.get('training', 'learning_rate'))
-    decay_rate = float(config.get('training', 'decay_rate'))
-    decay_start = int(config.get('training', 'decay_start'))
+    output_classes = config.getint('models', 'output_classes')
+    lstm_size = config.getint('models', 'lstm_size')
+    delta_window = config.getint('models', 'delta_window')
+    input_dimensions = config.getint('models', 'input_dimensions')
+    use_peepholes = config.getboolean('models', 'use_peepholes')
+    no_coeffs = config.getint('models', 'no_coeffs')
+    
+    learning_rate = config.getfloat('training', 'learning_rate')
+    validation_window = config.getint('training', 'validation_window')
+    batchsize = config.getint('training', 'batchsize')
+    epochsize = config.getint('training', 'epochsize')
+    no_epochs = config.getint('training', 'no_epochs')
+    weight_init = config.get('training', 'weight_init')
+    
+    weight_init_fn = las.init.GlorotUniform()
+    if weight_init == 'glorot':
+        weight_init_fn = las.init.GlorotUniform()
+    if weight_init == 'norm':
+        weight_init_fn = las.init.Normal(0.1)
+    if weight_init == 'uniform':
+        weight_init_fn = las.init.Uniform()
+    if weight_init == 'ortho':
+        weight_init_fn = las.init.Orthogonal()
 
     # 53 subjects, 70 utterances, 5 view angles
     # s[x]_v[y]_u[z].mp4
@@ -318,23 +312,8 @@ def main():
     val_dct = (val_dct - dct_mean) / dct_std
     test_dct = (test_dct - dct_mean) / dct_std
 
-    finetune = False
-    if finetune:
-        print('performing finetuning on pretrained encoder: {}'.format(ae_pretrained))
-        dbn = load_dbn(ae_pretrained)
-        dbn.initialize()
-        dbn.fit(train_X, train_X)
-
-    save = False
-    if save:
-        print('saving finetuned encoder: {}...'.format(ae_finetuned))
-        pickle.dump(dbn, open(ae_finetuned, 'wb'))
-
-    load = True
-    if load:
-        print('loading finetuned encoder: {}...'.format(ae_finetuned))
-        dbn = pickle.load(open(ae_finetuned, 'rb'))
-        dbn.initialize()
+    print('loading pretrained encoder: {}'.format(ae_pretrained))
+    dbn = load_dbn(ae_pretrained)
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -347,40 +326,22 @@ def main():
     dct = T.tensor3('dct', dtype='float32')
     inputs = T.tensor3('inputs', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
-    targets = T.ivector('targets')
-    lr = theano.shared(np.array(learning_rate, dtype=theano.config.floatX), name='learning_rate')
-    lr_decay = np.array(decay_rate, dtype=theano.config.floatX)
+    targets = T.imatrix('targets')
 
     print('constructing end to end model...')
-    '''
-    network = create_end_to_end_model(dbn, (None, None, 1144), inputs,
-                                      (None, None), mask, 250, window)
-
-    network, l_fuse = adenet_v2.create_model(dbn, (None, None, 1144), inputs,
+    network, l_fuse = adenet_v2.create_model(dbn, (None, None, input_dimensions), inputs,
                                              (None, None), mask,
-                                             (None, None, 90), dct,
-                                             250, window, 10, fusiontype)
-    '''
-
-    network, l_fuse = adenet_v2.create_model(dbn, (None, None, 1144), inputs,
-                                             (None, None), mask,
-                                             (None, None, 90), dct,
-                                             250, window, 10, fusiontype)
+                                             (None, None, no_coeffs), dct,
+                                             lstm_size, window, output_classes, fusiontype,
+                                             w_init_fn=weight_init_fn,
+                                             use_peepholes=use_peepholes)
 
     print_network(network)
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
-    cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
-    updates = adadelta(cost, all_params, learning_rate=lr)
-    # updates = adagrad(cost, all_params, learning_rate=lr)
-
-    use_max_constraint = False
-    if use_max_constraint:
-        MAX_NORM = 4
-        for param in las.layers.get_all_params(network, regularizable=True):
-            if param.ndim > 1:  # only apply to dimensions larger than 1, exclude biases
-                updates[param] = norm_constraint(param, MAX_NORM * las.utils.compute_norms(param.get_value()).mean())
+    cost = temporal_softmax_loss(predictions, targets, mask)
+    updates = adam(cost, all_params, learning_rate)
 
     train = theano.function(
         [inputs, targets, mask, dct, window],
@@ -388,7 +349,7 @@ def main():
     compute_train_cost = theano.function([inputs, targets, mask, dct, window], cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
-    test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
+    test_cost = temporal_softmax_loss(test_predictions, targets, mask)
     compute_test_cost = theano.function(
         [inputs, targets, mask, dct, window], test_cost, allow_input_downcast=True)
 
@@ -399,20 +360,17 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    NUM_EPOCHS = 10
-    EPOCH_SIZE = 120
-    BATCH_SIZE = 10
-    WINDOW_SIZE = 9
+    epochsize = 120
+    batchsize = 10
     STRIP_SIZE = 3
     MAX_LOSS = 0.2
-    VALIDATION_WINDOW = 4
-    val_window = circular_list(VALIDATION_WINDOW)
+    val_window = circular_list(validation_window)
     train_strip = np.zeros((STRIP_SIZE,))
     best_val = float('inf')
     best_conf = None
     best_cr = 0.0
 
-    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=BATCH_SIZE)
+    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=batchsize)
     val_datagen = gen_lstm_batch_random(val_X, val_y, val_vidlens, batchsize=len(val_vidlens))
     test_datagen = gen_lstm_batch_random(test_X, test_y, test_vidlens, batchsize=len(test_vidlens))
     integral_lens = compute_integral_len(train_vidlens)
@@ -425,33 +383,28 @@ def main():
     X_test, y_test, mask_test, idxs_test = next(test_datagen)
     integral_lens_test = compute_integral_len(test_vidlens)
     dct_test = gen_seq_batch_from_idx(test_dct, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
+    
+    # reshape the targets for validation
+    y_val_evaluate = y_val
+    y_val = y_val.reshape((-1, 1)).repeat(mask_val.shape[-1], axis=-1)
 
-    def early_stop(cost_window):
-        if len(cost_window) < 2:
-            return False
-        else:
-            curr = cost_window[0]
-            for idx, cost in enumerate(cost_window):
-                if curr < cost or idx == 0:
-                    curr = cost
-                else:
-                    return False
-            return True
-
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(no_epochs):
         time_start = time.time()
-        for i in range(EPOCH_SIZE):
+        for i in range(epochsize):
             X, y, m, batch_idxs = next(datagen)
+            # repeat targets based on max sequence len
+            y = y.reshape((-1, 1))
+            y = y.repeat(m.shape[-1], axis=-1)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs,
                                        train_vidlens, integral_lens, np.max(train_vidlens))
-            print_str = 'Epoch {} batch {}/{}: {} examples at learning rate = {:.4f}'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X), float(lr.get_value()))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam at learning rate = {:.4f}'.format(
+                epoch + 1, i + 1, epochsize, len(X), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
-            train(X, y, m, d, WINDOW_SIZE)
+            train(X, y, m, d, delta_window)
             print('\r', end='')
-        cost = compute_train_cost(X, y, m, d, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, WINDOW_SIZE)
+        cost = compute_train_cost(X, y, m, d, delta_window)
+        val_cost = compute_test_cost(X_val, y_val, mask_val, dct_val, delta_window)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -461,7 +414,7 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model(X_val, y_val, mask_val, dct_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, dct_val, delta_window, val_fn)
         class_rate.append(cr)
 
         if val_cost < best_val:
@@ -470,7 +423,7 @@ def main():
             best_cr = cr
             if fusiontype == 'adasum':
                 adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
-            test_cr, test_conf = evaluate_model(X_test, y_test, mask_test, dct_test, WINDOW_SIZE, val_fn)
+            test_cr, test_conf = evaluate_model2(X_test, y_test, mask_test, dct_test, delta_window, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))
@@ -479,12 +432,8 @@ def main():
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, time.time() - time_start))
 
-        if epoch >= VALIDATION_WINDOW and early_stop(val_window):
+        if epoch >= validation_window and early_stop2(val_window, best_val, validation_window):
             break
-
-        # learning rate decay
-        if epoch + 1 >= decay_start:
-            lr.set_value(lr.get_value() * lr_decay)
 
     phrases = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10']
 

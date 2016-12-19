@@ -1,7 +1,6 @@
 from __future__ import print_function
 import sys
 sys.path.insert(0, '../')
-import pickle
 import time
 import ConfigParser
 import argparse
@@ -18,14 +17,11 @@ from utils.regularization import early_stop2
 
 import theano.tensor as T
 import theano
-from nolearn.lasagne import NeuralNet
 
 import lasagne as las
 import numpy as np
-from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
-from lasagne.updates import nesterov_momentum, adam
-from lasagne.objectives import squared_error
+from lasagne.nonlinearities import linear, sigmoid, rectify
+from lasagne.updates import adam
 
 from modelzoo import adenet_v2_1, adenet_v2_2, adenet_v2_4
 from utils.plotting_utils import print_network
@@ -44,68 +40,15 @@ def load_dbn(path='models/oulu_ae.mat'):
     w2 = nn['w2']
     w3 = nn['w3']
     w4 = nn['w4']
-    w5 = nn['w5']
-    w6 = nn['w6']
-    w7 = nn['w7']
-    w8 = nn['w8']
     b1 = nn['b1'][0]
     b2 = nn['b2'][0]
     b3 = nn['b3'][0]
     b4 = nn['b4'][0]
-    b5 = nn['b5'][0]
-    b6 = nn['b6'][0]
-    b7 = nn['b7'][0]
-    b8 = nn['b8'][0]
-
-    layers = [
-        (InputLayer, {'name': 'input', 'shape': (None, 1144)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
-        (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
-        (DenseLayer, {'name': 'output', 'num_units': 1144, 'nonlinearity': linear, 'W': w8, 'b': b8}),
-    ]
-
-    dbn = NeuralNet(
-        layers=layers,
-        max_epochs=30,
-        objective_loss_function=squared_error,
-        update=nesterov_momentum,
-        regression=True,
-        verbose=1,
-        update_learning_rate=0.001,
-        update_momentum=0.05,
-        objective_l2=0.005,
-    )
-    return dbn
-
-
-def extract_encoder(dbn):
-    dbn_layers = dbn.get_all_layers()
-    encoder = NeuralNet(
-        layers=[
-            (InputLayer, {'name': 'input', 'shape': dbn_layers[0].shape}),
-            (DenseLayer, {'name': 'l1', 'num_units': dbn_layers[1].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[1].W, 'b': dbn_layers[1].b}),
-            (DenseLayer, {'name': 'l2', 'num_units': dbn_layers[2].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[2].W, 'b': dbn_layers[2].b}),
-            (DenseLayer, {'name': 'l3', 'num_units': dbn_layers[3].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[3].W, 'b': dbn_layers[3].b}),
-            (DenseLayer, {'name': 'l4', 'num_units': dbn_layers[4].num_units, 'nonlinearity': linear,
-                          'W': dbn_layers[4].W, 'b': dbn_layers[4].b}),
-        ],
-        update=nesterov_momentum,
-        update_learning_rate=0.001,
-        update_momentum=0.5,
-        objective_l2=0.005,
-        verbose=1,
-        regression=True
-    )
-    encoder.initialize()
-    return encoder
+    weights = [w1, w2, w3, w4]
+    biases = [b1, b2, b3, b4]
+    shapes = [2000, 1000, 500, 50]
+    nonlinearities = [rectify, rectify, rectify, linear]
+    return weights, biases, shapes, nonlinearities
 
 
 def configure_theano():
@@ -203,14 +146,6 @@ def read_data_split_file(path, sep=','):
         subjects = f.readline().split(sep)
         subjects = [int(s) for s in subjects]
     return subjects
-
-
-def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='encoder')
-    return l_4
 
 
 def evaluate_model(X_val, y_val, mask_val, X_diff_val, window_size, eval_fn):
@@ -321,21 +256,26 @@ def main():
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
     dct_data = load_mat_file(config.get('data', 'dct'))
-    ae_finetuned = config.get('models', 'finetuned')
-    ae_finetuned_diff = config.get('models', 'finetuned_diff')
+    ae_pretrained = config.get('models', 'pretrained')
+    ae_pretrained_diff = config.get('models', 'pretrained_diff')
     fusiontype = config.get('models', 'fusiontype')
-    load_finetune = config.getboolean('training', 'load_finetune')
-    load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
+    lstm_size = config.getint('models', 'lstm_size')
+    output_classes = config.getint('models', 'output_classes')
+    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('models',
+                                                                                                  'use_peepholes')
+    use_blstm = config.getboolean('models', 'use_blstm')
+    delta_window = config.getint('models', 'delta_window')
+    input_dimensions = config.getint('models', 'input_dimensions')
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
         if 'validation_window' in options else config.getint('training', 'validation_window')
     num_epoch = int(options['num_epoch']) if 'num_epoch' in options else config.getint('training', 'num_epoch')
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
-    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
-                                                                                                  'use_peepholes')
-    use_blstm = config.getboolean('training', 'use_blstm')
     use_finetuning = config.getboolean('training', 'use_finetuning')
+    learning_rate = config.getfloat('training', 'learning_rate')
+    batchsize = config.getint('training', 'batchsize')
+    epochsize = config.getint('training', 'epochsize')
 
     weight_init_fn = las.init.GlorotUniform()
     if weight_init == 'glorot':
@@ -394,15 +334,11 @@ def main():
     val_X = normalize_input(val_X, centralize=True)
     test_X = normalize_input(test_X, centralize=True)
 
-    if load_finetune:
-        print('loading finetuned encoder: {}...'.format(ae_finetuned))
-        ae = pickle.load(open(ae_finetuned, 'rb'))
-        ae.initialize()
+    print('loading pretrained encoder: {}...'.format(ae_pretrained))
+    ae = load_dbn(ae_pretrained)
 
-    if load_finetune_diff:
-        print('loading finetuned encoder: {}...'.format(ae_finetuned_diff))
-        ae_diff = pickle.load(open(ae_finetuned_diff, 'rb'))
-        ae_diff.initialize()
+    print('loading pretrained encoder: {}...'.format(ae_pretrained_diff))
+    ae_diff = load_dbn(ae_pretrained_diff)
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -412,33 +348,32 @@ def main():
     # visualize_reconstruction(test_X[:36, :], output[:36, :], shape=(26, 44))
 
     window = T.iscalar('theta')
-    dct = T.tensor3('dct', dtype='float32')
     inputs = T.tensor3('inputs', dtype='float32')
     inputs_diff = T.tensor3('inputs_diff', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
-    # targets = T.ivector('targets')
     targets = T.imatrix('targets')
 
     print('constructing end to end model...')
     if use_blstm:
-        network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1144), inputs,
+        network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, input_dimensions), inputs,
                                                    (None, None), mask,
-                                                   (None, None, 1144), inputs_diff,
-                                                   250, window, 10, fusiontype, weight_init_fn, use_peepholes)
+                                                   (None, None, input_dimensions), inputs_diff,
+                                                   lstm_size, window, output_classes, fusiontype,
+                                                   weight_init_fn, use_peepholes)
     else:
-        network, l_fuse = adenet_v2_4.create_model(ae, ae_diff, (None, None, 1144), inputs,
+        network, l_fuse = adenet_v2_4.create_model(ae, ae_diff, (None, None, input_dimensions), inputs,
                                                    (None, None), mask,
-                                                   (None, None, 1144), inputs_diff,
-                                                   250, window, 10, fusiontype, weight_init_fn, use_peepholes)
+                                                   (None, None, input_dimensions), inputs_diff,
+                                                   lstm_size, window, output_classes, fusiontype,
+                                                   weight_init_fn, use_peepholes)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)
-    # cost = T.mean(las.objectives.categorical_crossentropy(predictions, targets))
     cost = temporal_softmax_loss(predictions, targets, mask)
-    updates = adam(cost, all_params)
+    updates = adam(cost, all_params, learning_rate=learning_rate)
 
     train = theano.function(
         [inputs, targets, mask, inputs_diff, window],
@@ -447,7 +382,6 @@ def main():
                                          cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
-    # test_cost = T.mean(las.objectives.categorical_crossentropy(test_predictions, targets))
     test_cost = temporal_softmax_loss(test_predictions, targets, mask)
     compute_test_cost = theano.function(
         [inputs, targets, mask, inputs_diff, window], test_cost, allow_input_downcast=True)
@@ -459,16 +393,13 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    EPOCH_SIZE = 120
-    BATCH_SIZE = 10
-    WINDOW_SIZE = 9
     STRIP_SIZE = 3
     val_window = circular_list(validation_window)
     train_strip = np.zeros((STRIP_SIZE,))
     best_val = float('inf')
     best_cr = 0.0
 
-    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=BATCH_SIZE)
+    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=batchsize)
     integral_lens = compute_integral_len(train_vidlens)
 
     val_datagen = gen_lstm_batch_random(val_X, val_y, val_vidlens, batchsize=len(val_vidlens))
@@ -490,20 +421,20 @@ def main():
 
     for epoch in range(num_epoch):
         time_start = time.time()
-        for i in range(EPOCH_SIZE):
+        for i in range(epochsize):
             X, y, m, batch_idxs = next(datagen)
             # repeat targets based on max sequence len
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
             X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
                                             train_vidlens, integral_lens, np.max(train_vidlens))
-            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(epoch + 1, i + 1, EPOCH_SIZE, len(X))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(epoch + 1, i + 1, epochsize, len(X))
             print(print_str, end='')
             sys.stdout.flush()
-            train(X, y, m, X_diff, WINDOW_SIZE)
+            train(X, y, m, X_diff, delta_window)
             print('\r', end='')
-        cost = compute_train_cost(X, y, m, X_diff, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, X_diff_val, WINDOW_SIZE)
+        cost = compute_train_cost(X, y, m, X_diff, delta_window)
+        val_cost = compute_test_cost(X_val, y_val, mask_val, X_diff_val, delta_window)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -513,7 +444,7 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, X_diff_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, X_diff_val, delta_window, val_fn)
         class_rate.append(cr)
 
         if val_cost < best_val:
@@ -522,7 +453,7 @@ def main():
             if fusiontype == 'adasum':
                 adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
             test_cr, test_conf = evaluate_model2(X_test, y_test, mask_test,
-                                                 X_diff_test, WINDOW_SIZE, val_fn)
+                                                 X_diff_test, delta_window, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))

@@ -236,6 +236,7 @@ def main():
     lstm_units = int(config.get('models', 'lstm_units'))
     output_classes = int(config.get('models', 'output_classes'))
     weight_init = config.get('models', 'weight_init')
+    delta_window = config.getint('models', 'delta_window')
     nonlinearity = select_nonlinearity(config.get('models', 'nonlinearity'))
 
     weight_init_fn = las.init.GlorotUniform()
@@ -336,7 +337,6 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    WINDOW_SIZE = 9
     STRIP_SIZE = 3
     val_window = circular_list(validation_window)
     train_strip = np.zeros((STRIP_SIZE,))
@@ -367,10 +367,10 @@ def main():
                 epoch + 1, i + 1, epochsize, len(X), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
-            train(X, y, m, WINDOW_SIZE)
+            train(X, y, m, delta_window)
             print('\r', end='')
-        cost = compute_train_cost(X, y, m, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, WINDOW_SIZE)
+        cost = compute_train_cost(X, y, m, delta_window)
+        val_cost = compute_test_cost(X_val, y_val, mask_val, delta_window)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -380,12 +380,12 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, delta_window, val_fn)
         class_rate.append(cr)
 
         if val_cost < best_val:
             best_val = val_cost
-            test_cr, test_conf = evaluate_model2(X_test, y_test, mask_test, WINDOW_SIZE, val_fn)
+            test_cr, test_conf = evaluate_model2(X_test, y_test, mask_test, delta_window, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))

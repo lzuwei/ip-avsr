@@ -37,31 +37,13 @@ def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramet
     return l_lstm, l_lstm_back
 
 
-def extract_weights(ae):
-    weights = []
-    biases = []
-    shapes = [2000, 1000, 500, 50]
-    nonlinearities = [rectify, rectify, rectify, linear]
-    ae_layers = ae.get_all_layers()
-    weights.append(ae_layers[1].W.astype('float32'))
-    weights.append(ae_layers[2].W.astype('float32'))
-    weights.append(ae_layers[3].W.astype('float32'))
-    weights.append(ae_layers[4].W.astype('float32'))
-    biases.append(ae_layers[1].b.astype('float32'))
-    biases.append(ae_layers[2].b.astype('float32'))
-    biases.append(ae_layers[3].b.astype('float32'))
-    biases.append(ae_layers[4].b.astype('float32'))
-
-    return weights, biases, shapes, nonlinearities
-
-
 def create_model(ae, diff_ae, input_shape, input_var, mask_shape, mask_var,
                  diff_shape, diff_var, lstm_size=250, win=T.iscalar('theta)'),
                  output_classes=26, fusiontype='concat', w_init_fn=las.init.Orthogonal(),
                  use_peepholes=True):
 
-    bn_weights, bn_biases, bn_shapes, bn_nonlinearities = extract_weights(ae)
-    diff_weights, diff_biases, diff_shapes, diff_nonlinearities = extract_weights(diff_ae)
+    bn_weights, bn_biases, bn_shapes, bn_nonlinearities = ae
+    diff_weights, diff_biases, diff_shapes, diff_nonlinearities = diff_ae
 
     gate_parameters = Gate(
         W_in=w_init_fn, W_hid=w_init_fn,
