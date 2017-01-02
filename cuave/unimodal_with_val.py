@@ -359,7 +359,7 @@ def main():
 
     if 'write_results' in options:
         with open(options['write_results'], mode='a') as f:
-            f.write('{},{},{}'.format(test_cr, val_cr, best_val))
+            f.write('{},{},{}\n'.format(test_cr, val_cr, best_val))
 
     if 'save_best' in options:
         print('Saving the best model so far...')
