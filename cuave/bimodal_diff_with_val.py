@@ -187,7 +187,7 @@ def main():
     subjects_vec = data['subjectsVec'].reshape((-1,))
     vidlen_vec = data['videoLengthVec'].reshape((-1,))
 
-    data_matrix = reorder_data(data_matrix)
+    data_matrix = reorder_data(data_matrix, (30, 50))
 
     train_X, train_y, train_vidlens, train_subjects, \
     val_X, val_y, val_vidlens, val_subjects, \
