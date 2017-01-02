@@ -26,6 +26,7 @@ from lasagne.objectives import squared_error
 
 from modelzoo import deltanet
 
+
 def load_dbn(path='models/oulu_ae.mat'):
     """
     load a pretrained dbn from path

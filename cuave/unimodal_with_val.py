@@ -54,13 +54,6 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def read_data_split_file(path, sep=','):
-    with open(path) as f:
-        subjects = f.readline().split(sep)
-        subjects = [int(s) for s in subjects]
-    return subjects
-
-
 def evaluate_model(X_val, y_val, mask_val, window_size, eval_fn):
     """
     Evaluate a lstm model
@@ -205,6 +198,26 @@ def main():
     if weight_init == 'ortho':
         weight_init_fn = las.init.Orthogonal()
 
+    train_subject_ids = read_data_split_file('data/train.txt')
+    val_subject_ids = read_data_split_file('data/val.txt')
+    test_subject_ids = read_data_split_file('data/test.txt')
+
+    data_matrix = data['dataMatrix']
+    targets_vec = data['targetsVec'].reshape((-1,))
+    subjects_vec = data['subjectsVec'].reshape((-1,))
+    vidlen_vec = data['videoLengthVec'].reshape((-1,))
+
+    data_matrix = sequencewise_mean_image_subtraction(data_matrix, vidlen_vec)
+
+    train_X, train_y, train_vidlens, train_subjects, \
+    val_X, val_y, val_vidlens, val_subjects, \
+    test_X, test_y, test_vidlens, test_subjects = split_seq_data(data_matrix, targets_vec, subjects_vec, vidlen_vec,
+                   train_subject_ids, val_subject_ids, test_subject_ids)
+    train_y += 1
+    val_y += 1
+    test_y += 1
+
+    '''
     train_vidlens = data['trVideoLengthVec'].astype('int').reshape((-1,))
     val_vidlens = data['valVideoLengthVec'].astype('int').reshape((-1,))
     test_vidlens = data['testVideoLengthVec'].astype('int').reshape((-1,))
@@ -214,6 +227,7 @@ def main():
     train_y = data['trTargetsVec'].astype('int').reshape((-1,)) + 1  # +1 to handle the -1 introduced in lstm_gendata
     val_y = data['valTargetsVec'].astype('int').reshape((-1,)) + 1
     test_y = data['testTargetsVec'].astype('int').reshape((-1,)) + 1
+    '''
 
     train_X = reorder_data(train_X, (30, 50))
     val_X = reorder_data(val_X, (30, 50))
@@ -321,6 +335,7 @@ def main():
 
         if val_cost < best_val:
             best_val = val_cost
+            val_cr = cr
             test_cr, test_conf = evaluate_model2(X_test, y_test, mask_test, WINDOW_SIZE, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
@@ -337,21 +352,20 @@ def main():
     numbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 
     print('Final Model')
-    print('classification rate: {}, validation loss: {}'.format(test_cr, best_val))
+    print('test CR: {}, val CR: {}, val loss: {}'.format(test_cr, val_cr, best_val))
     print('confusion matrix: ')
     plot_confusion_matrix(test_conf, numbers, fmt='grid')
     plot_validation_cost(cost_train, cost_val, class_rate)
+
+    if 'write_results' in options:
+        with open(options['write_results'], mode='a') as f:
+            f.write('{},{},{}'.format(test_cr, val_cr, best_val))
 
     if 'save_best' in options:
         print('Saving the best model so far...')
         las.layers.set_all_param_values(network, best_params)
         save_model_params(network, options['save_best'])
-        print('test reloading...')
-        network = load_model_params(network, 'models/unimodal_with_val.pkl')
-        test_predictions = las.layers.get_output(network, deterministic=True)
-        val_fn = theano.function([inputs, mask, window], test_predictions, allow_input_downcast=True)
-        test_cr, test_conf = evaluate_model(X_test, y_test, mask_test, WINDOW_SIZE, val_fn)
-        print('classification rate: {}, validation loss: {}'.format(test_cr, best_val))
+        print('Model Saved!')
 
 
 if __name__ == '__main__':

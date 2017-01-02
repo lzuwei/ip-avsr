@@ -120,19 +120,56 @@ def diff_image(train, val, test, train_vid_lens, val_vid_lens, test_vid_lens):
     return train, val, test
 
 
+def concat_deltas(train, val, test, train_vid_lens, val_vid_lens, test_vid_lens, w=9):
+    train = concat_first_second_deltas(train, train_vid_lens, w)
+    val = concat_first_second_deltas(val, val_vid_lens, w)
+    test = concat_first_second_deltas(test, test_vid_lens, w)
+
+
+def merge_samples(train, val, test, train_vid_lens, val_vid_lens, test_vid_lens, mergesize=3):
+    train, train_vid_lens = downsample(train, train_vid_lens, mergesize, 0)
+    val, val_vid_lens = downsample(val, val_vid_lens, mergesize, 0)
+    test, test_vid_lens = downsample(test, test_vid_lens, mergesize, 0)
+    return train, val, test, train_vid_lens, val_vid_lens, test_vid_lens
+
+
+def test_mergesamples():
+    s = np.array([[1],[2],[3],[4],[1],[2],[3],[4],[1],[2],[3],[4],[1],[2],[3],[4],[5]])
+    # s = np.array([1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4,5])
+    l = [4,4,4,5]
+    r = downsample(s, l, 3, 0)
+    print(r)
+
+
+def test_embed_temporal_info():
+    s = np.array([[1,1,1],[2,2,2],[3,3,3],[4,4,4],[1,1,1],[2,2,2],[3,3,3],[4,4,4],[1,1,1],[2,2,2],[3,3,3],[4,4,4],
+                  [1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5]])
+    # s = np.array([1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4,5])
+    l = np.array([4,4,4,5])
+    r = downsample(s, l, 3, 0)
+    print(r)
+
+
 def parse_options():
     options = dict()
     options['remove_mean'] = False
     options['diff_image'] = False
     options['samplewise_norm'] = False
     options['no_reorder'] = False
+    options['merge_samples'] = False
     options['output'] = None
+    options['delta_win'] = 9
+    options['mergesize'] = 3
     parser = argparse.ArgumentParser()
     parser.add_argument('--remove_mean', action='store_true', help='remove mean image')
     parser.add_argument('--diff_image', action='store_true', help='compute difference of image')
     parser.add_argument('--samplewise_norm', action='store_true', help='samplewise normalize')
     parser.add_argument('--no_reorder', action='store_true', help='disable data reordering from f to c')
+    parser.add_argument('--concat_deltas', action='store_true', help='concat 1st and 2nd deltas')
+    parser.add_argument('--merge_samples', action='store_true', help='merge samples')
+    parser.add_argument('--mergesize', help='merge size, default = 3')
     parser.add_argument('--output', help='write output to .mat file')
+    parser.add_argument('--delta_win', help='size of delta window')
     parser.add_argument('input', nargs='+', help='input cuave .mat file to preprocess')
     args = parser.parse_args()
     if args.remove_mean:
@@ -141,6 +178,10 @@ def parse_options():
         options['diff_image'] = args.diff_image
     if args.samplewise_norm:
         options['samplewise_norm'] = args.samplewise_norm
+    if args.merge_samples:
+        options['merge_samples'] = True
+    if args.mergesize:
+        options['mergesize'] = int(args.mergesize)
     if args.no_reorder:
         options['no_reorder'] = args.no_reorder
     if args.output:
@@ -151,6 +192,7 @@ def parse_options():
 
 
 def main():
+    test_embed_temporal_info()
     options = parse_options()
     # data = load_mat_file('data/allData_mouthROIs_basedOnMouthCenter_trValTestSets.mat')
     data = load_mat_file(options['input'])
@@ -169,12 +211,21 @@ def main():
         X_train, X_val, X_test = remove_mean(X_train, X_val, X_test, train_vid_lens, val_vid_lens, test_vid_lens)
     if options['diff_image']:
         X_train, X_val, X_test = diff_image(X_train, X_val, X_test, train_vid_lens, val_vid_lens, test_vid_lens)
-
-    # visualize_images(X_test[500:536], (30, 50))
+    if options['merge_samples']:
+        X_train, X_val, X_test,\
+            train_vid_lens, val_vid_lens, test_vid_lens = merge_samples(X_train, X_val, X_test,
+                                                                        train_vid_lens, val_vid_lens,
+                                                                        test_vid_lens, mergesize=options['mergesize'])
 
     data['trData'] = X_train
     data['valData'] = X_val
     data['testData'] = X_test
+
+    if options['merge_samples']:
+        data['trVideoLengthVec'] = train_vid_lens
+        data['valVideoLengthVec'] = val_vid_lens
+        data['testVideoLengthVec'] = test_vid_lens
+
     if options['output']:
         save_mat(data, options['output'])
     # print(data.keys())

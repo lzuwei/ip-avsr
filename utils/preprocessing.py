@@ -1,5 +1,6 @@
 # Preprocessing scripts for AV Letters Dataset
 
+import math
 import numpy as np
 import numpy.matlib as matlab
 import scipy.signal as signal
@@ -104,6 +105,75 @@ def split_data(data_matrix, split_idx, len_vec=None):
         for i, idx in enumerate(split_idx):
             split[i] = data_matrix[idx:len_vec[idx]]
         return split
+
+
+def split_seq_data(X, y, subjects, video_lens, train_ids, val_ids, test_ids):
+    """
+    Splits the data into training and testing sets
+    :param X: input X
+    :param y: target y
+    :param subjects: array of video -> subject mapping
+    :param video_lens: array of video lengths for each video
+    :param train_ids: list of subject ids used for training
+    :param val_ids: list of subject ids used for validation
+    :param test_ids: list of subject ids used for testing
+    :return: split data
+    """
+    # construct a subjects data matrix offset
+    X_feature_dim = X.shape[1]
+    train_X = np.empty((0, X_feature_dim), dtype='float32')
+    val_X = np.empty((0, X_feature_dim), dtype='float32')
+    test_X = np.empty((0, X_feature_dim), dtype='float32')
+    train_y = np.empty((0,), dtype='int')
+    val_y = np.empty((0,), dtype='int')
+    test_y = np.empty((0,), dtype='int')
+    train_vidlens = np.empty((0,), dtype='int')
+    val_vidlens = np.empty((0,), dtype='int')
+    test_vidlens = np.empty((0,), dtype='int')
+    train_subjects = np.empty((0,), dtype='int')
+    val_subjects = np.empty((0,), dtype='int')
+    test_subjects = np.empty((0,), dtype='int')
+    previous_subject = 1
+    subject_video_count = 0
+    current_video_idx = 0
+    current_data_idx = 0
+    populate = False
+    for idx, subject in enumerate(subjects):
+        if previous_subject == subject:  # accumulate
+            subject_video_count += 1
+        else:  # populate the previous subject
+            populate = True
+        if idx == len(subjects) - 1:  # check if it is the last entry, if so populate
+            populate = True
+            previous_subject = subject
+        if populate:
+            # slice the data into the respective splits
+            end_video_idx = current_video_idx + subject_video_count
+            subject_data_len = int(np.sum(video_lens[current_video_idx:end_video_idx]))
+            end_data_idx = current_data_idx + subject_data_len
+            if previous_subject in train_ids:
+                train_X = np.concatenate((train_X, X[current_data_idx:end_data_idx]))
+                train_y = np.concatenate((train_y, y[current_data_idx:end_data_idx]))
+                train_vidlens = np.concatenate((train_vidlens, video_lens[current_video_idx:end_video_idx]))
+                train_subjects = np.concatenate((train_subjects, subjects[current_video_idx:end_video_idx]))
+            elif previous_subject in val_ids:
+                val_X = np.concatenate((val_X, X[current_data_idx:end_data_idx]))
+                val_y = np.concatenate((val_y, y[current_data_idx:end_data_idx]))
+                val_vidlens = np.concatenate((val_vidlens, video_lens[current_video_idx:end_video_idx]))
+                val_subjects = np.concatenate((val_subjects, subjects[current_video_idx:end_video_idx]))
+            else:
+                test_X = np.concatenate((test_X, X[current_data_idx:end_data_idx]))
+                test_y = np.concatenate((test_y, y[current_data_idx:end_data_idx]))
+                test_vidlens = np.concatenate((test_vidlens, video_lens[current_video_idx:end_video_idx]))
+                test_subjects = np.concatenate((test_subjects, subjects[current_video_idx:end_video_idx]))
+            previous_subject = subject
+            current_video_idx = end_video_idx
+            current_data_idx = end_data_idx
+            subject_video_count = 1
+            populate = False
+    return train_X, train_y, train_vidlens, train_subjects, \
+           val_X, val_y, val_vidlens, val_subjects, \
+           test_X, test_y, test_vidlens, test_subjects
 
 
 def resize_img(img, orig_dim=(60, 80), dim=(30, 40), reshape=True, order='F'):
@@ -378,11 +448,12 @@ def compute_dct_features(X, image_shape, no_coeff=30, method='zigzag'):
         raise NotImplementedError("method not implemented, use only 'zigzag', 'variance', 'rel_variance")
 
 
-def concat_first_second_deltas(X, vidlenvec):
+def concat_first_second_deltas(X, vidlenvec, w=9):
     """
     Compute and concatenate 1st and 2nd order derivatives of input X given a sequence list
     :param X: input feature vector X
     :param vidlenvec: temporal sequence of X
+    :param w: window size, defaults to 9
     :return: A matrix of shape(num rows of intput X, X + 1st order X + 2nd order X)
     """
     # construct a new feature matrix
@@ -392,8 +463,8 @@ def concat_first_second_deltas(X, vidlenvec):
     for vidlen in vidlenvec:
         end = start + vidlen
         seq = X[start: end]  # (vidlen, feature_len)
-        first_order = deltas(seq.T)
-        second_order = deltas(first_order)
+        first_order = deltas(seq.T, w)
+        second_order = deltas(first_order, w)
         assert first_order.shape == (feature_len, vidlen)
         assert second_order.shape == (feature_len, vidlen)
         assert len(seq) == vidlen
@@ -444,3 +515,64 @@ def apply_zca_whitening(X):
     for i, img in enumerate(X):
         X[i] = zca_whiten(img.reshape((1, -1)))
     return X
+
+
+def downsample(inputs, input_len, merge_size, axis_to_delete=None):
+    """
+    downsample inputs based on merge size
+    :param inputs: input data vector arranged as (input size, feature len)
+    :param input_len: input data vector original length of shape (1,)
+    :param merge_size: number of frames to merge
+    :return: merged samples of shape (input size / merge size, merged features)
+    """
+    # if 1 dimension, reshape to 2 dim array
+    if len(inputs.shape) < 2:
+        inputs = inputs.reshape((-1, 1))
+    idx_to_remove = []
+    curr_idx = 0
+    for l in input_len:
+        end_idx = curr_idx + l
+        remainder = l % merge_size
+        # randomly remove items if it is not divisible by merge size
+        idx_to_remove += np.random.permutation(range(curr_idx, end_idx))[:remainder].tolist()
+        curr_idx += l
+    input_len = input_len - (input_len % merge_size)
+    return np.delete(inputs, idx_to_remove, axis=axis_to_delete), input_len
+
+
+def embed_temporal_info(X, X_len, window, step):
+    """
+    first downsample input to multiple of step
+    repeat head and tail according to window
+    embed features based on window
+    [][.][]|[][.][]|[][.][]|[][.][]
+    {}{}[][.][][][.][][][.][][][.][]{}{}
+    {}{}{}{}{}[][.][][][.][][][.][][][.][]{}{}{}{}{}
+    win = 1, step = 3, repeats = win - step + ceil(step/2) = 1 - 3 + ceil(3/2) = 0
+    win = 3, step = 3, repeats = 3 - 3 + ceil(step/2) = 3 - 3 + 2 = 2
+    win = 6, step = 3, repeats = 6 - 3 + ceil(step/2) = 6 - 3 + 2 = 5
+    startpos = floor(step/2) = floor(3/2) = 1
+    :param X: input matrix in the shape (feature no, feature size)
+    :param X_len: lengths of each sequence
+    :param window: temporal window to embed features
+    :param step: step size to move per temporal feature
+    :return:
+    """
+    embedsize = X.shape[-1] * (window*2 + 1)
+    res = np.zeros((np.sum(X_len)/step, embedsize), dtype=X.dtype)
+    # select the sequence
+    curr_idx = 0
+    res_iter = 0
+    for l in X_len:
+        end_idx = curr_idx + l
+        seq = X[curr_idx:end_idx]
+        repeats = window - step + math.ceil(step/2.0)
+        seq = np.repeat(seq, repeats, axis=-1)
+        startpos = repeats + (step/2)
+        while startpos + window < len(seq) - 1:
+            temporal_feature = seq[startpos - window: startpos + window].reshape((1, -1))
+            res[res_iter] = temporal_feature
+            startpos += step
+            res_iter += 1
+    res_len = X_len / step
+    return res, res_len

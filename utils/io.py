@@ -8,6 +8,13 @@ except:
     import pickle
 
 
+def read_data_split_file(path, sep=','):
+    with open(path) as f:
+        subjects = f.readline().split(sep)
+        subjects = [int(s) for s in subjects]
+    return subjects
+
+
 def load_mat_file(path):
     """
     Loads .mat file
