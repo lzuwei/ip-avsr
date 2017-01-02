@@ -1,7 +1,6 @@
 from __future__ import print_function
 import sys
 sys.path.insert(0, '../')
-import pickle
 import time
 import ConfigParser
 import argparse
@@ -19,16 +18,13 @@ from custom.objectives import temporal_softmax_loss
 
 import theano.tensor as T
 import theano
-from nolearn.lasagne import NeuralNet
 
 import lasagne as las
 import numpy as np
-from lasagne.layers import InputLayer, DenseLayer
-from lasagne.nonlinearities import tanh, linear, sigmoid, rectify
-from lasagne.updates import nesterov_momentum, adam
-from lasagne.objectives import squared_error
+from lasagne.updates import adam
+from lasagne.nonlinearities import rectify, linear
 
-from modelzoo import adenet_v3, adenet_v2_1, adenet_v2_2, adenet_v2_4
+from modelzoo import adenet_v2_2
 from utils.plotting_utils import print_network
 
 
@@ -44,173 +40,20 @@ def load_dbn(path='models/oulu_ae.mat'):
     w2 = nn['w2']
     w3 = nn['w3']
     w4 = nn['w4']
-    w5 = nn['w5']
-    w6 = nn['w6']
-    w7 = nn['w7']
-    w8 = nn['w8']
     b1 = nn['b1'][0]
     b2 = nn['b2'][0]
     b3 = nn['b3'][0]
     b4 = nn['b4'][0]
-    b5 = nn['b5'][0]
-    b6 = nn['b6'][0]
-    b7 = nn['b7'][0]
-    b8 = nn['b8'][0]
-
-    layers = [
-        (InputLayer, {'name': 'input', 'shape': (None, 1144)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
-        (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
-        (DenseLayer, {'name': 'output', 'num_units': 1144, 'nonlinearity': linear, 'W': w8, 'b': b8}),
-    ]
-
-    dbn = NeuralNet(
-        layers=layers,
-        max_epochs=30,
-        objective_loss_function=squared_error,
-        update=nesterov_momentum,
-        regression=True,
-        verbose=1,
-        update_learning_rate=0.001,
-        update_momentum=0.05,
-        objective_l2=0.005,
-    )
-    return dbn
-
-
-def extract_encoder(dbn):
-    dbn_layers = dbn.get_all_layers()
-    encoder = NeuralNet(
-        layers=[
-            (InputLayer, {'name': 'input', 'shape': dbn_layers[0].shape}),
-            (DenseLayer, {'name': 'l1', 'num_units': dbn_layers[1].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[1].W, 'b': dbn_layers[1].b}),
-            (DenseLayer, {'name': 'l2', 'num_units': dbn_layers[2].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[2].W, 'b': dbn_layers[2].b}),
-            (DenseLayer, {'name': 'l3', 'num_units': dbn_layers[3].num_units, 'nonlinearity': sigmoid,
-                          'W': dbn_layers[3].W, 'b': dbn_layers[3].b}),
-            (DenseLayer, {'name': 'l4', 'num_units': dbn_layers[4].num_units, 'nonlinearity': linear,
-                          'W': dbn_layers[4].W, 'b': dbn_layers[4].b}),
-        ],
-        update=nesterov_momentum,
-        update_learning_rate=0.001,
-        update_momentum=0.5,
-        objective_l2=0.005,
-        verbose=1,
-        regression=True
-    )
-    encoder.initialize()
-    return encoder
+    weights = [w1, w2, w3, w4]
+    biases = [b1, b2, b3, b4]
+    shapes = [2000, 1000, 500, 50]
+    nonlinearities = [rectify, rectify, rectify, linear]
+    return weights, biases, shapes, nonlinearities
 
 
 def configure_theano():
     theano.config.floatX = 'float32'
     sys.setrecursionlimit(10000)
-
-
-def split_data(X, y, dct, X_diff, subjects, video_lens, train_ids, val_ids, test_ids):
-    """
-    Splits the data into training and testing sets
-    :param X: input X
-    :param y: target y
-    :param dct: dct features
-    :param X_diff: difference images
-    :param subjects: array of video -> subject mapping
-    :param video_lens: array of video lengths for each video
-    :param train_ids: list of subject ids used for training
-    :param val_ids: list of subject ids used for validation
-    :param test_ids: list of subject ids used for testing
-    :return: split data
-    """
-    # construct a subjects data matrix offset
-    X_feature_dim = X.shape[1]
-    X_diff_feature_dim = X_diff.shape[1]
-    dct_dim = dct.shape[1]
-    train_X = np.empty((0, X_feature_dim), dtype='float32')
-    val_X = np.empty((0, X_feature_dim), dtype='float32')
-    test_X = np.empty((0, X_feature_dim), dtype='float32')
-    train_y = np.empty((0,), dtype='int')
-    val_y = np.empty((0,), dtype='int')
-    test_y = np.empty((0,), dtype='int')
-    train_dct = np.empty((0, dct_dim), dtype='float32')
-    val_dct = np.empty((0, dct_dim), dtype='float32')
-    test_dct = np.empty((0, dct_dim), dtype='float32')
-    train_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
-    val_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
-    test_X_diff = np.empty((0, X_diff_feature_dim), dtype='float32')
-    train_vidlens = np.empty((0,), dtype='int')
-    val_vidlens = np.empty((0,), dtype='int')
-    test_vidlens = np.empty((0,), dtype='int')
-    train_subjects = np.empty((0,), dtype='int')
-    val_subjects = np.empty((0,), dtype='int')
-    test_subjects = np.empty((0,), dtype='int')
-    previous_subject = 1
-    subject_video_count = 0
-    current_video_idx = 0
-    current_data_idx = 0
-    populate = False
-    for idx, subject in enumerate(subjects):
-        if previous_subject == subject:  # accumulate
-            subject_video_count += 1
-        else:  # populate the previous subject
-            populate = True
-        if idx == len(subjects) - 1:  # check if it is the last entry, if so populate
-            populate = True
-            previous_subject = subject
-        if populate:
-            # slice the data into the respective splits
-            end_video_idx = current_video_idx + subject_video_count
-            subject_data_len = int(np.sum(video_lens[current_video_idx:end_video_idx]))
-            end_data_idx = current_data_idx + subject_data_len
-            if previous_subject in train_ids:
-                train_X = np.concatenate((train_X, X[current_data_idx:end_data_idx]))
-                train_y = np.concatenate((train_y, y[current_data_idx:end_data_idx]))
-                train_X_diff = np.concatenate((train_X_diff, X_diff[current_data_idx:end_data_idx]))
-                train_dct = np.concatenate((train_dct, dct[current_data_idx:end_data_idx]))
-                train_vidlens = np.concatenate((train_vidlens, video_lens[current_video_idx:end_video_idx]))
-                train_subjects = np.concatenate((train_subjects, subjects[current_video_idx:end_video_idx]))
-            elif previous_subject in val_ids:
-                val_X = np.concatenate((val_X, X[current_data_idx:end_data_idx]))
-                val_y = np.concatenate((val_y, y[current_data_idx:end_data_idx]))
-                val_X_diff = np.concatenate((val_X_diff, X_diff[current_data_idx:end_data_idx]))
-                val_dct = np.concatenate((val_dct, dct[current_data_idx:end_data_idx]))
-                val_vidlens = np.concatenate((val_vidlens, video_lens[current_video_idx:end_video_idx]))
-                val_subjects = np.concatenate((val_subjects, subjects[current_video_idx:end_video_idx]))
-            else:
-                test_X = np.concatenate((test_X, X[current_data_idx:end_data_idx]))
-                test_y = np.concatenate((test_y, y[current_data_idx:end_data_idx]))
-                test_dct = np.concatenate((test_dct, dct[current_data_idx:end_data_idx]))
-                test_X_diff = np.concatenate((test_X_diff, X_diff[current_data_idx:end_data_idx]))
-                test_vidlens = np.concatenate((test_vidlens, video_lens[current_video_idx:end_video_idx]))
-                test_subjects = np.concatenate((test_subjects, subjects[current_video_idx:end_video_idx]))
-            previous_subject = subject
-            current_video_idx = end_video_idx
-            current_data_idx = end_data_idx
-            subject_video_count = 1
-            populate = False
-    return train_X, train_y, train_dct, train_X_diff, train_vidlens, train_subjects,\
-           val_X, val_y, val_dct, val_X_diff, val_vidlens, val_subjects,\
-           test_X, test_y, test_dct, test_X_diff, test_vidlens, test_subjects
-
-
-def read_data_split_file(path, sep=','):
-    with open(path) as f:
-        subjects = f.readline().split(sep)
-        subjects = [int(s) for s in subjects]
-    return subjects
-
-
-def create_pretrained_encoder(weights, biases, incoming):
-    l_1 = DenseLayer(incoming, 2000, W=weights[0], b=biases[0], nonlinearity=sigmoid, name='fc1')
-    l_2 = DenseLayer(l_1, 1000, W=weights[1], b=biases[1], nonlinearity=sigmoid, name='fc2')
-    l_3 = DenseLayer(l_2, 500, W=weights[2], b=biases[2], nonlinearity=sigmoid, name='fc3')
-    l_4 = DenseLayer(l_3, 50, W=weights[3], b=biases[3], nonlinearity=linear, name='encoder')
-    return l_4
 
 
 def evaluate_model(X_val, y_val, mask_val, X_diff_val, window_size, eval_fn):
@@ -308,11 +151,9 @@ def main():
 
     print('preprocessing dataset...')
     data = load_mat_file(config.get('data', 'images'))
-    ae_finetuned = config.get('models', 'finetuned')
-    ae_finetuned_diff = config.get('models', 'finetuned_diff')
+    ae_pretrained = config.get('models', 'pretrained')
+    ae_pretrained_diff = config.get('models', 'pretrained_diff')
     fusiontype = config.get('models', 'fusiontype')
-    load_finetune = config.getboolean('training', 'load_finetune')
-    load_finetune_diff = config.getboolean('training', 'load_finetune_diff')
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
@@ -323,8 +164,9 @@ def main():
         else config.getfloat('training', 'learning_rate')
     use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
                                                                                                   'use_peepholes')
-    use_blstm = config.getboolean('training', 'use_blstm')
-    use_finetuning = config.getboolean('training', 'use_finetuning')
+    epochsize = config.getint('training', 'epochsize')
+    batchsize = config.getint('training', 'batchsize')
+    windowsize = config.getint('training', 'windowsize')
 
     weight_init_fn = las.init.GlorotUniform()
     if weight_init == 'glorot':
@@ -336,36 +178,35 @@ def main():
     if weight_init == 'ortho':
         weight_init_fn = las.init.Orthogonal()
 
-    train_vidlens = data['trVideoLengthVec'].astype('int').reshape((-1,))
-    val_vidlens = data['valVideoLengthVec'].astype('int').reshape((-1,))
-    test_vidlens = data['testVideoLengthVec'].astype('int').reshape((-1,))
-    train_X = data['trData'].astype('float32')
-    val_X = data['valData'].astype('float32')
-    test_X = data['testData'].astype('float32')
+    train_subject_ids = read_data_split_file('data/train.txt')
+    val_subject_ids = read_data_split_file('data/val.txt')
+    test_subject_ids = read_data_split_file('data/test.txt')
+
+    data_matrix = data['dataMatrix']
+    targets_vec = data['targetsVec'].reshape((-1,))
+    subjects_vec = data['subjectsVec'].reshape((-1,))
+    vidlen_vec = data['videoLengthVec'].reshape((-1,))
+
+    data_matrix = reorder_data(data_matrix)
+
+    train_X, train_y, train_vidlens, train_subjects, \
+    val_X, val_y, val_vidlens, val_subjects, \
+    test_X, test_y, test_vidlens, test_subjects = split_seq_data(data_matrix, targets_vec, subjects_vec, vidlen_vec,
+                                                                 train_subject_ids, val_subject_ids, test_subject_ids)
+    train_y += 1
+    val_y += 1
+    test_y += 1
+
     train_X_diff = compute_diff_images(train_X, train_vidlens)
     val_X_diff = compute_diff_images(val_X, val_vidlens)
     test_X_diff = compute_diff_images(test_X, test_vidlens)
-    # +1 to handle the -1 introduced in lstm_gendata
-    train_y = data['trTargetsVec'].astype('int').reshape((-1,)) + 1
-    val_y = data['valTargetsVec'].astype('int').reshape((-1,)) + 1
-    test_y = data['testTargetsVec'].astype('int').reshape((-1,)) + 1
 
-    train_X = reorder_data(train_X, (30, 50), 'c', 'f')
-    val_X = reorder_data(val_X, (30, 50), 'c', 'f')
-    test_X = reorder_data(test_X, (30, 50), 'c', 'f')
-    train_X_diff = reorder_data(train_X_diff, (30, 50), 'c', 'f')
-    val_X_diff = reorder_data(val_X_diff, (30, 50), 'c', 'f')
-    test_X_diff = reorder_data(test_X_diff, (30, 50), 'c', 'f')
+    train_X = sequencewise_mean_image_subtraction(train_X, train_vidlens)
+    val_X = sequencewise_mean_image_subtraction(val_X, val_vidlens)
+    test_X = sequencewise_mean_image_subtraction(test_X, test_vidlens)
 
-    if load_finetune:
-        print('loading finetuned encoder: {}...'.format(ae_finetuned))
-        ae = pickle.load(open(ae_finetuned, 'rb'))
-        ae.initialize()
-
-    if load_finetune_diff:
-        print('loading finetuned encoder: {}...'.format(ae_finetuned_diff))
-        ae_diff = pickle.load(open(ae_finetuned_diff, 'rb'))
-        ae_diff.initialize()
+    ae = load_dbn(ae_pretrained)
+    ae_diff = load_dbn(ae_pretrained_diff)
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -378,24 +219,15 @@ def main():
     inputs = T.tensor3('inputs', dtype='float32')
     inputs_diff = T.tensor3('inputs_diff', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
-    # targets = T.ivector('targets')
     targets = T.imatrix('targets')
 
     print('constructing end to end model...')
-    if use_blstm:
-        network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1500), inputs,
-                                                   (None, None), mask,
-                                                   (None, None, 1500), inputs_diff,
-                                                   250, window, 10, fusiontype,
-                                                   w_init_fn=weight_init_fn,
-                                                   use_peepholes=use_peepholes)
-    else:
-        network, l_fuse = adenet_v2_4.create_model(ae, ae_diff, (None, None, 1500), inputs,
-                                                   (None, None), mask,
-                                                   (None, None, 1500), inputs_diff,
-                                                   250, window, 10, fusiontype,
-                                                   w_init_fn=weight_init_fn,
-                                                   use_peepholes=use_peepholes)
+    network, l_fuse = adenet_v2_2.create_model(ae, ae_diff, (None, None, 1500), inputs,
+                                               (None, None), mask,
+                                               (None, None, 1500), inputs_diff,
+                                               250, window, 10, fusiontype,
+                                               w_init_fn=weight_init_fn,
+                                               use_peepholes=use_peepholes)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')
@@ -423,9 +255,6 @@ def main():
     cost_train = []
     cost_val = []
     class_rate = []
-    EPOCH_SIZE = 90
-    BATCH_SIZE = 10
-    WINDOW_SIZE = 9
     STRIP_SIZE = 3
     val_window = circular_list(validation_window)
     train_strip = np.zeros((STRIP_SIZE,))
@@ -433,7 +262,7 @@ def main():
     best_tr = float('inf')
     best_cr = 0.0
 
-    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=BATCH_SIZE)
+    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=batchsize)
     integral_lens = compute_integral_len(train_vidlens)
 
     val_datagen = gen_lstm_batch_random(val_X, val_y, val_vidlens, batchsize=len(val_vidlens))
@@ -455,7 +284,7 @@ def main():
 
     for epoch in range(num_epoch):
         time_start = time.time()
-        for i in range(EPOCH_SIZE):
+        for i in range(epochsize):
             X, y, m, batch_idxs = next(datagen)
             # repeat targets based on max sequence len
             y = y.reshape((-1, 1))
@@ -463,13 +292,13 @@ def main():
             X_diff = gen_seq_batch_from_idx(train_X_diff, batch_idxs,
                                             train_vidlens, integral_lens, np.max(train_vidlens))
             print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(
-                epoch + 1, i + 1, EPOCH_SIZE, len(X))
+                epoch + 1, i + 1, epochsize, len(X))
             print(print_str, end='')
             sys.stdout.flush()
-            train(X, y, m, X_diff, WINDOW_SIZE)
+            train(X, y, m, X_diff, windowsize)
             print('\r', end='')
-        cost = compute_train_cost(X, y, m, X_diff, WINDOW_SIZE)
-        val_cost = compute_test_cost(X_val, y_val, mask_val, X_diff_val, WINDOW_SIZE)
+        cost = compute_train_cost(X, y, m, X_diff, windowsize)
+        val_cost = compute_test_cost(X_val, y_val, mask_val, X_diff_val, windowsize)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -479,7 +308,7 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, X_diff_val, WINDOW_SIZE, val_fn)
+        cr, val_conf = evaluate_model2(X_val, y_val_evaluate, mask_val, X_diff_val, windowsize, val_fn)
         class_rate.append(cr)
 
         if val_cost < best_val:
@@ -489,7 +318,7 @@ def main():
             if fusiontype == 'adasum':
                 adascale_param = las.layers.get_all_param_values(l_fuse, scaling_param=True)
             test_cr, test_conf = evaluate_model2(X_test, y_test, mask_test,
-                                                 X_diff_test, WINDOW_SIZE, val_fn)
+                                                 X_diff_test, windowsize, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))
@@ -514,6 +343,8 @@ def main():
     if 'write_results' in options:
         results_file = options['write_results']
         with open(results_file, mode='a') as f:
+            f.write('{},{},{}\n'.format(test_cr, best_cr, best_val))
+            '''
             f.write('{},{},{},{},{},{},{},{},{},{},{},{}\n'.format(use_finetuning, 'yes', use_peepholes,
                                                                    'adam', weight_init, 'RELU',
                                                                    use_blstm, learning_rate, best_tr,
@@ -527,6 +358,7 @@ def main():
 
             s = ','.join([str(v) for v in class_rate])
             f.write('{}\n'.format(s))
+            '''
 
 
 if __name__ == '__main__':

@@ -28,7 +28,7 @@ from modelzoo import adenet_v2
 from utils.plotting_utils import print_network
 
 
-def load_dbn(path='models/cuave_ae.mat'):
+def load_dbn(path='models/oulu_ae.mat'):
     """
     load a pretrained dbn from path
     :param path: path to the .mat dbn
@@ -36,18 +36,19 @@ def load_dbn(path='models/cuave_ae.mat'):
     """
     # create the network using weights from pretrain_nn.mat
     nn = sio.loadmat(path)
-    w1 = nn['w1'].astype('float32')
-    w2 = nn['w2'].astype('float32')
-    w3 = nn['w3'].astype('float32')
-    w4 = nn['w4'].astype('float32')
-    b1 = nn['b1'][0].astype('float32')
-    b2 = nn['b2'][0].astype('float32')
-    b3 = nn['b3'][0].astype('float32')
-    b4 = nn['b4'][0].astype('float32')
-
+    w1 = nn['w1']
+    w2 = nn['w2']
+    w3 = nn['w3']
+    w4 = nn['w4']
+    b1 = nn['b1'][0]
+    b2 = nn['b2'][0]
+    b3 = nn['b3'][0]
+    b4 = nn['b4'][0]
     weights = [w1, w2, w3, w4]
     biases = [b1, b2, b3, b4]
-    return weights, biases
+    shapes = [2000, 1000, 500, 50]
+    nonlinearities = [rectify, rectify, rectify, linear]
+    return weights, biases, shapes, nonlinearities
 
 
 def configure_theano():
@@ -238,7 +239,7 @@ def main():
     test_dct = (test_dct - dct_mean) / dct_std
 
     print('loading pretrained encoder: {}...'.format(pretrained_ae))
-    weights, biases = load_dbn(pretrained_ae)
+    ae = load_dbn(pretrained_ae)
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -254,11 +255,11 @@ def main():
     targets = T.imatrix('targets')
 
     print('constructing end to end model...')
-    network, l_fuse = adenet_v2.create_model_from_pretrained_encoder(weights, biases, (None, None, input_dimension),
-                                                                     inputs, (None, None), mask,
-                                                                     (None, None, no_coeff*3), dct,
-                                                                     lstm_size, window, output_classes, fusiontype,
-                                                                     weight_init_fn, use_peepholes, nonlinearity)
+    network, l_fuse = adenet_v2.create_model(ae, (None, None, input_dimension),
+                                             inputs, (None, None), mask,
+                                             (None, None, no_coeff*3), dct,
+                                             lstm_size, window, output_classes, fusiontype,
+                                             weight_init_fn, use_peepholes, nonlinearity)
 
     print_network(network)
     print('compiling model...')
