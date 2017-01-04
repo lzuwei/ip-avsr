@@ -92,47 +92,6 @@ def segment_video(video_file, label_file):
     print(seq_lens)
 
 
-def reorder_images(train, val, test):
-    train = reshape_images_order(train, (30, 50))
-    val = reshape_images_order(val, (30, 50))
-    test = reshape_images_order(test, (30, 50))
-    return train, val, test
-
-
-def samplewise_normalize(train, val, test):
-    train = normalize_input(train)
-    val = normalize_input(val)
-    test = normalize_input(test)
-    return train, val, test
-
-
-def remove_mean(train, val, test, train_vid_lens, val_vid_lens, test_vid_lens):
-    train = sequencewise_mean_image_subtraction(train, train_vid_lens)
-    val = sequencewise_mean_image_subtraction(val, val_vid_lens)
-    test = sequencewise_mean_image_subtraction(test, test_vid_lens)
-    return train, val, test
-
-
-def diff_image(train, val, test, train_vid_lens, val_vid_lens, test_vid_lens):
-    train = compute_diff_images(train, train_vid_lens)
-    val = compute_diff_images(val, val_vid_lens)
-    test = compute_diff_images(test, test_vid_lens)
-    return train, val, test
-
-
-def concat_deltas(train, val, test, train_vid_lens, val_vid_lens, test_vid_lens, w=9):
-    train = concat_first_second_deltas(train, train_vid_lens, w)
-    val = concat_first_second_deltas(val, val_vid_lens, w)
-    test = concat_first_second_deltas(test, test_vid_lens, w)
-
-
-def merge_samples(train, val, test, train_vid_lens, val_vid_lens, test_vid_lens, mergesize=3):
-    train, train_vid_lens = downsample(train, train_vid_lens, mergesize, 0)
-    val, val_vid_lens = downsample(val, val_vid_lens, mergesize, 0)
-    test, test_vid_lens = downsample(test, test_vid_lens, mergesize, 0)
-    return train, val, test, train_vid_lens, val_vid_lens, test_vid_lens
-
-
 def test_mergesamples():
     s = np.array([[1],[2],[3],[4],[1],[2],[3],[4],[1],[2],[3],[4],[1],[2],[3],[4],[5]])
     # s = np.array([1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4,5])
@@ -146,7 +105,8 @@ def test_embed_temporal_info():
                   [1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5]])
     # s = np.array([1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4,5])
     l = np.array([4,4,4,5])
-    r = downsample(s, l, 3, 0)
+    r, l = downsample(s, l, 3, 0)
+    r, l = embed_temporal_info(r, l, 3, 3)
     print(r)
 
 
@@ -166,8 +126,7 @@ def parse_options():
     parser.add_argument('--samplewise_norm', action='store_true', help='samplewise normalize')
     parser.add_argument('--no_reorder', action='store_true', help='disable data reordering from f to c')
     parser.add_argument('--concat_deltas', action='store_true', help='concat 1st and 2nd deltas')
-    parser.add_argument('--merge_samples', action='store_true', help='merge samples')
-    parser.add_argument('--mergesize', help='merge size, default = 3')
+    parser.add_argument('--embed_temporal_info', help='embed temporal info to features [window],[step]. ie: 3,1')
     parser.add_argument('--output', help='write output to .mat file')
     parser.add_argument('--delta_win', help='size of delta window')
     parser.add_argument('input', nargs='+', help='input cuave .mat file to preprocess')
@@ -178,10 +137,8 @@ def parse_options():
         options['diff_image'] = args.diff_image
     if args.samplewise_norm:
         options['samplewise_norm'] = args.samplewise_norm
-    if args.merge_samples:
-        options['merge_samples'] = True
-    if args.mergesize:
-        options['mergesize'] = int(args.mergesize)
+    if args.embed_temporal_info:
+        options['embed_temporal_info'] = args.embed_temporal_info
     if args.no_reorder:
         options['no_reorder'] = args.no_reorder
     if args.output:
@@ -192,41 +149,30 @@ def parse_options():
 
 
 def main():
-    test_embed_temporal_info()
     options = parse_options()
-    # data = load_mat_file('data/allData_mouthROIs_basedOnMouthCenter_trValTestSets.mat')
     data = load_mat_file(options['input'])
-    X_train = data['trData'].astype('float32')
-    X_val = data['valData'].astype('float32')
-    X_test = data['testData'].astype('float32')
-    train_vid_lens = data['trVideoLengthVec'].reshape((-1,))
-    val_vid_lens = data['valVideoLengthVec'].reshape((-1,))
-    test_vid_lens = data['testVideoLengthVec'].reshape((-1,))
+    data_matrix = data['dataMatrix'].astype('float32')
+    vid_len_vec = data['videoLengthVec'].astype('int').reshape((-1,))
 
     if not options['no_reorder']:
-        X_train, X_val, X_test = reorder_images(X_train, X_val, X_test)
+        data_matrix = reorder_data(data_matrix, (30, 50))
     if options['samplewise_norm']:
-        X_train, X_val, X_test = samplewise_normalize(X_train, X_val, X_test)
+        data_matrix = normalize_input(data_matrix)
     if options['remove_mean']:
-        X_train, X_val, X_test = remove_mean(X_train, X_val, X_test, train_vid_lens, val_vid_lens, test_vid_lens)
+        data_matrix = sequencewise_mean_image_subtraction(data_matrix, vid_len_vec)
     if options['diff_image']:
-        X_train, X_val, X_test = diff_image(X_train, X_val, X_test, train_vid_lens, val_vid_lens, test_vid_lens)
-    if options['merge_samples']:
-        X_train, X_val, X_test,\
-            train_vid_lens, val_vid_lens, test_vid_lens = merge_samples(X_train, X_val, X_test,
-                                                                        train_vid_lens, val_vid_lens,
-                                                                        test_vid_lens, mergesize=options['mergesize'])
+        data_matrix = compute_diff_images(data_matrix, vid_len_vec)
+    if 'embed_temporal_info' in options:
+        window, step = tuple([int(d) for d in options['embed_temporal_info'].split(',')])
+        data_matrix, vid_len_vec = downsample(data_matrix, vid_len_vec, window, 0)
+        data_matrix, vid_len_vec = embed_temporal_info(data_matrix, vid_len_vec, window, step)
 
-    data['trData'] = X_train
-    data['valData'] = X_val
-    data['testData'] = X_test
+    data['dataMatrix'] = data_matrix
 
-    if options['merge_samples']:
-        data['trVideoLengthVec'] = train_vid_lens
-        data['valVideoLengthVec'] = val_vid_lens
-        data['testVideoLengthVec'] = test_vid_lens
+    if 'embed_temporal_info' in options:
+        data['videoLengthVec'] = vid_len_vec
 
-    if options['output']:
+    if 'output' in options:
         save_mat(data, options['output'])
     # print(data.keys())
     print('data prepared!')

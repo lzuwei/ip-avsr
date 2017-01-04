@@ -566,13 +566,19 @@ def embed_temporal_info(X, X_len, window, step):
     for l in X_len:
         end_idx = curr_idx + l
         seq = X[curr_idx:end_idx]
-        repeats = window - step + math.ceil(step/2.0)
-        seq = np.repeat(seq, repeats, axis=-1)
+        repeats = int(window - step + math.ceil(step/2.0))  # compute the number of elements to repeat
+        # extend the sequence in the head and tail based on the number of repeats
+        seq = np.concatenate((np.repeat(seq[:1, :], repeats, axis=0),
+                              seq,
+                              np.repeat(seq[-1:, :], repeats, axis=0)), axis=0)
+        # compute the starting position of the sequence to embed temporal info
         startpos = repeats + (step/2)
-        while startpos + window < len(seq) - 1:
-            temporal_feature = seq[startpos - window: startpos + window].reshape((1, -1))
+        # iterate through the sequence and embed temporal information, stop at the end of the original sequence len
+        while startpos - repeats < l:
+            temporal_feature = seq[startpos - window: startpos + window + 1].reshape((-1,))
             res[res_iter] = temporal_feature
             startpos += step
             res_iter += 1
+        curr_idx += l  # move to next sequence
     res_len = X_len / step
     return res, res_len

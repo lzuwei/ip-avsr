@@ -73,7 +73,7 @@ def gen_lstm_batch_random(X, y, seqlen, batchsize=30, shuffle=True):
             end = start + l
             X_batch[i] = np.concatenate([X[start:end],
                                          np.zeros((max_timesteps - l, feature_len))])
-            y_batch[i] = y[start] - 1
+            y_batch[i] = y[start]
             mask[i, :l] = 1  # set 1 for length of video
             mask[i, l:] = 0  # set 0 for rest of video
         if reset:
@@ -130,7 +130,7 @@ def gen_lstm_batch_seq(X, y, seqlen, batchsize=30):
             end = start + l
             X_batch[i] = np.concatenate([batch_sequence[start:end],
                                         np.zeros((max_timesteps-l, feature_len))])
-            y_batch[i] = batch_target[start] - 1  # get the letter for this video
+            y_batch[i] = batch_target[start]
             mask[i, :l] = 1  # set 1 for length of video
             mask[i, l:] = 0  # set 0 for rest of video
             start = end
@@ -206,7 +206,7 @@ def sequence_batch_iterator(X, y, seqlen, batchsize=30):
             end = start + l
             X_batch[i] = np.concatenate([batch_sequence[start:end],
                                         np.zeros((max_timesteps-l, feature_len))])
-            y_batch[i] = batch_target[start] - 1  # get the letter for this video
+            y_batch[i] = batch_target[start]
             mask[i, :l] = 1  # set 1 for length of video
             mask[i, l:] = 0  # set 0 for rest of video
             start = end

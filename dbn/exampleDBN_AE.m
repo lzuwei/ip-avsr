@@ -6,8 +6,8 @@ type = 1; % 1 is AE, 2 is classifier,
 % train_x = double(train_x(1:50000,:));
 % train_y = double(train_y(1:50000,:));
 
-%train_x = dataMatrix;
-train_x = trData; %vertcat(trData, valData, testData);
+train_x = dataMatrix;
+%train_x = trData; %vertcat(trData, valData, testData);
 % train_x = cat(1, testDataResized, trainDataResized);
 
 
@@ -19,7 +19,7 @@ if type == 1 % AE
    %if type = 1, i.e., AE then the last layer should be linear and usually a
 % series of decreasing layers are used
     hiddenActivationFunctions = {'ReLu','ReLu','ReLu','linear'};%{'sigm','sigm','sigm','linear'}; 
-    hiddenLayers = [2000 1000 500 50]; 
+    hiddenLayers = [200 100 50 20]; 
    
 elseif type == 2 % classifier
     outputSize = size(train_y,2); % in case of classification it should be equal to the number of classes

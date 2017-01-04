@@ -4,15 +4,18 @@ import lasagne as las
 from lasagne.layers import InputLayer, DenseLayer, ReshapeLayer, ElemwiseSumLayer
 from lasagne.layers import Gate
 from lasagne.nonlinearities import tanh, linear, rectify
+from lasagne.init import GlorotUniform
 
 from custom.layers import DeltaLayer, create_blstm
 from modelzoo.pretrained_encoder import create_pretrained_encoder
 
 
-def create_model_using_pretrained_encoder(weights, biases, input_shape, input_var, mask_shape, mask_var,
-                                          lstm_size=250, win=T.iscalar('theta'), output_classes=26,
-                                          w_init_fn=las.init.Orthogonal(),
-                                          use_peepholes=False, nonlinearities=rectify):
+def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
+                 lstm_size=250, win=T.iscalar('theta)'),
+                 output_classes=26, w_init_fn=GlorotUniform, use_peepholes=False):
+
+    weights, biases, shapes, nonlinearities = dbn
+
     gate_parameters = Gate(
         W_in=w_init_fn, W_hid=w_init_fn,
         b=las.init.Constant(0.))
@@ -31,8 +34,8 @@ def create_model_using_pretrained_encoder(weights, biases, input_shape, input_va
 
     l_reshape1 = ReshapeLayer(l_in, (-1, input_shape[-1]), name='reshape1')
     l_encoder = create_pretrained_encoder(l_reshape1, weights, biases,
-                                          [2000, 1000, 500, 50],
-                                          [nonlinearities, nonlinearities, nonlinearities, linear],
+                                          shapes,
+                                          nonlinearities,
                                           ['fc1', 'fc2', 'fc3', 'bottleneck'])
     encoder_len = las.layers.get_output_shape(l_encoder)[-1]
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
@@ -57,24 +60,4 @@ def create_model_using_pretrained_encoder(weights, biases, input_shape, input_va
     l_out = ReshapeLayer(l_softmax, (-1, symbolic_seqlen, output_classes), name='output')
 
     return l_out
-
-
-def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
-                 lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26):
-
-    dbn_layers = dbn.get_all_layers()
-    weights = []
-    biases = []
-    weights.append(dbn_layers[1].W.astype('float32'))
-    weights.append(dbn_layers[2].W.astype('float32'))
-    weights.append(dbn_layers[3].W.astype('float32'))
-    weights.append(dbn_layers[4].W.astype('float32'))
-    biases.append(dbn_layers[1].b.astype('float32'))
-    biases.append(dbn_layers[2].b.astype('float32'))
-    biases.append(dbn_layers[3].b.astype('float32'))
-    biases.append(dbn_layers[4].b.astype('float32'))
-
-    return create_model_using_pretrained_encoder(weights, biases, input_shape, input_var, mask_shape, mask_var,
-                                                 lstm_size, win, output_classes)
 
