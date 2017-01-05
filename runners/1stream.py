@@ -107,34 +107,46 @@ def main():
     print('CLI options: {}'.format(options.items()))
 
     print('Reading Config File: {}...'.format(config_file))
-    print(config.items('data'))
-    print(config.items('models'))
+    print(config.items('stream1'))
+    print(config.items('lstm_classifier'))
     print(config.items('training'))
 
     print('preprocessing dataset...')
-    data = load_mat_file(config.get('data', 'images'))
-    stream1 = config.get('models', 'stream1')
-    stream1_dim = config.getint('models', 'stream1_dim')
-    stream1_shapes = config.get('models', 'stream1_shapes')
-    stream1_nonlinearities = config.get('models', 'stream1_nonlinearities')
-    imagesize = tuple([int(d) for d in config.get('models', 'imagesize').split(',')])
-    output_classes = config.getint('models', 'output_classes')
-    output_classnames = config.get('models', 'output_classnames').split(',')
-    lstm_size = config.getint('models', 'lstm_size')
-    matlab_target_offset = config.getboolean('models', 'matlab_target_offset')
+    data = load_mat_file(config.get('stream1', 'data'))
+    stream1 = config.get('stream1', 'model')
+    imagesize = tuple([int(d) for d in config.get('stream1', 'imagesize').split(',')])
+    stream1_dim = config.getint('stream1', 'input_dimensions')
+    stream1_shape = config.get('stream1', 'shape')
+    stream1_nonlinearities = config.get('stream1', 'nonlinearities')
+
+    # lstm classifier
+    output_classes = config.getint('lstm_classifier', 'output_classes')
+    output_classnames = config.get('lstm_classifier', 'output_classnames').split(',')
+    lstm_size = config.getint('lstm_classifier', 'lstm_size')
+    matlab_target_offset = config.getboolean('lstm_classifier', 'matlab_target_offset')
+
+    # data preprocessing options
+    reorderdata = config.getboolean('stream1', 'reorderdata')
+    diffimage = config.getboolean('stream1', 'diffimage')
+    meanremove = config.getboolean('stream1', 'meanremove')
+    samplewisenormalize = config.getboolean('stream1', 'samplewisenormalize')
+    featurewisenormalize = config.getboolean('stream1', 'featurewisenormalize')
+
+    # lstm classifier configurations
+    weight_init = options['weight_init'] if 'weight_init' in options else config.get('lstm_classifier', 'weight_init')
+    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('lstm_classifier',
+                                                                                                  'use_peepholes')
+    windowsize = config.getint('lstm_classifier', 'windowsize')
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
         if 'validation_window' in options else config.getint('training', 'validation_window')
     num_epoch = int(options['num_epoch']) if 'num_epoch' in options else config.getint('training', 'num_epoch')
-    weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
     learning_rate = options['learning_rate'] if 'learning_rate' in options \
         else config.getfloat('training', 'learning_rate')
-    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
-                                                                                                  'use_peepholes')
+
     epochsize = config.getint('training', 'epochsize')
     batchsize = config.getint('training', 'batchsize')
-    windowsize = config.getint('training', 'windowsize')
 
     weight_init_fn = las.init.GlorotUniform()
     if weight_init == 'glorot':
@@ -155,7 +167,8 @@ def main():
     subjects_vec = data['subjectsVec'].reshape((-1,))
     vidlen_vec = data['videoLengthVec'].reshape((-1,))
 
-    # data_matrix = reorder_data(data_matrix, (imagesize[0], imagesize[1]))
+    if reorderdata:
+        data_matrix = reorder_data(data_matrix, (imagesize[0], imagesize[1]))
 
     train_X, train_y, train_vidlens, train_subjects, \
     val_X, val_y, val_vidlens, val_subjects, \
@@ -166,11 +179,27 @@ def main():
         val_y -= 1
         test_y -= 1
 
-    train_X = sequencewise_mean_image_subtraction(train_X, train_vidlens)
-    val_X = sequencewise_mean_image_subtraction(val_X, val_vidlens)
-    test_X = sequencewise_mean_image_subtraction(test_X, test_vidlens)
+    if meanremove:
+        train_X = sequencewise_mean_image_subtraction(train_X, train_vidlens)
+        val_X = sequencewise_mean_image_subtraction(val_X, val_vidlens)
+        test_X = sequencewise_mean_image_subtraction(test_X, test_vidlens)
 
-    ae1 = load_decoder(stream1, stream1_shapes, stream1_nonlinearities)
+    if diffimage:
+        train_X = compute_diff_images(train_X, train_vidlens)
+        val_X = compute_diff_images(val_X, val_vidlens)
+        test_X = compute_diff_images(test_X, test_vidlens)
+
+    if samplewisenormalize:
+        train_X = normalize_input(train_X)
+        val_X = normalize_input(val_X)
+        test_X = normalize_input(test_X)
+
+    if featurewisenormalize:
+        train_X, mean, std = featurewise_normalize_sequence(train_X)
+        val_X = (val_X - mean) / std
+        test_X = (test_X - mean) / std
+
+    ae1 = load_decoder(stream1, stream1_shape, stream1_nonlinearities)
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -181,7 +210,6 @@ def main():
 
     window = T.iscalar('theta')
     inputs1 = T.tensor3('inputs1', dtype='float32')
-    inputs2 = T.tensor3('inputs2', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.imatrix('targets')
 
@@ -192,7 +220,6 @@ def main():
                                                   weight_init_fn, use_peepholes)
 
     print_network(network)
-    # draw_to_file(las.layers.get_all_layers(network), 'network.png')
     print('compiling model...')
     predictions = las.layers.get_output(network, deterministic=False)
     all_params = las.layers.get_all_params(network, trainable=True)

@@ -215,7 +215,13 @@ def resize_images(images, orig_dim=(60, 80), dim=(30, 40), reshape=True, order='
 
 
 def normalize_input(input, centralize=True, quantize=False):
-
+    """
+    samplewise normalize input
+    :param input: input features
+    :param centralize: apply 0 mean, std 1
+    :param quantize: rescale values to fall between 0 and 1
+    :return: normalized input
+    """
     def center(item):
         item = item - item.mean()
         item = item / np.std(item)
@@ -251,6 +257,13 @@ def featurewise_normalize_sequence(input):
 
 
 def sequencewise_mean_image_subtraction(input, seqlens, axis=0):
+    """
+    sequence-wise mean image removal
+    :param input: input sequences
+    :param seqlens: sequence lengths
+    :param axis: axis to apply mean image removal
+    :return: mean removed input sequences
+    """
     mean_subtracted = np.zeros(input.shape, input.dtype)
     start = 0
     end = 0
