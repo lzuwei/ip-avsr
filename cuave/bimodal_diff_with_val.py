@@ -193,9 +193,6 @@ def main():
     val_X, val_y, val_vidlens, val_subjects, \
     test_X, test_y, test_vidlens, test_subjects = split_seq_data(data_matrix, targets_vec, subjects_vec, vidlen_vec,
                                                                  train_subject_ids, val_subject_ids, test_subject_ids)
-    train_y += 1
-    val_y += 1
-    test_y += 1
 
     train_X_diff = compute_diff_images(train_X, train_vidlens)
     val_X_diff = compute_diff_images(val_X, val_vidlens)
@@ -344,21 +341,6 @@ def main():
         results_file = options['write_results']
         with open(results_file, mode='a') as f:
             f.write('{},{},{}\n'.format(test_cr, best_cr, best_val))
-            '''
-            f.write('{},{},{},{},{},{},{},{},{},{},{},{}\n'.format(use_finetuning, 'yes', use_peepholes,
-                                                                   'adam', weight_init, 'RELU',
-                                                                   use_blstm, learning_rate, best_tr,
-                                                                   best_val, best_cr*100, test_cr*100))
-
-            s = ','.join([str(v) for v in cost_train])
-            f.write('{}\n'.format(s))
-
-            s = ','.join([str(v) for v in cost_val])
-            f.write('{}\n'.format(s))
-
-            s = ','.join([str(v) for v in class_rate])
-            f.write('{}\n'.format(s))
-            '''
 
 
 if __name__ == '__main__':
