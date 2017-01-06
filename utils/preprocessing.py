@@ -530,10 +530,11 @@ def apply_zca_whitening(X):
     return X
 
 
-def downsample(inputs, input_len, merge_size, axis_to_delete=None):
+def downsample(inputs, targets, input_len, merge_size, axis_to_delete=None):
     """
     downsample inputs based on merge size
     :param inputs: input data vector arranged as (input size, feature len)
+    :param targets: targets data vector
     :param input_len: input data vector original length of shape (1,)
     :param merge_size: number of frames to merge
     :return: merged samples of shape (input size / merge size, merged features)
@@ -550,7 +551,8 @@ def downsample(inputs, input_len, merge_size, axis_to_delete=None):
         idx_to_remove += np.random.permutation(range(curr_idx, end_idx))[:remainder].tolist()
         curr_idx += l
     input_len = input_len - (input_len % merge_size)
-    return np.delete(inputs, idx_to_remove, axis=axis_to_delete), input_len
+    return np.delete(inputs, idx_to_remove, axis=axis_to_delete),\
+           np.delete(targets, idx_to_remove, axis=axis_to_delete), input_len
 
 
 def embed_temporal_info(X, X_len, window, step):

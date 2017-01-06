@@ -153,6 +153,7 @@ def main():
     data = load_mat_file(options['input'])
     data_matrix = data['dataMatrix'].astype('float32')
     vid_len_vec = data['videoLengthVec'].astype('int').reshape((-1,))
+    targets_vec = data['targetsVec'].reshape((-1,))
 
     if not options['no_reorder']:
         data_matrix = reorder_data(data_matrix, (30, 50))
@@ -164,13 +165,14 @@ def main():
         data_matrix = compute_diff_images(data_matrix, vid_len_vec)
     if 'embed_temporal_info' in options:
         window, step = tuple([int(d) for d in options['embed_temporal_info'].split(',')])
-        data_matrix, vid_len_vec = downsample(data_matrix, vid_len_vec, window, 0)
+        data_matrix, targets_vec, vid_len_vec = downsample(data_matrix, targets_vec, vid_len_vec, window, 0)
         data_matrix, vid_len_vec = embed_temporal_info(data_matrix, vid_len_vec, window, step)
 
     data['dataMatrix'] = data_matrix
 
     if 'embed_temporal_info' in options:
         data['videoLengthVec'] = vid_len_vec
+        data['targetsVec'] = targets_vec
 
     if 'output' in options:
         save_mat(data, options['output'])
