@@ -162,7 +162,7 @@ def main():
     val_subject_ids = read_data_split_file(config.get('training', 'val_subjects_file'))
     test_subject_ids = read_data_split_file(config.get('training', 'test_subjects_file'))
 
-    data_matrix = data['dataMatrix']
+    data_matrix = data['dataMatrix'].astype('float32')
     targets_vec = data['targetsVec'].reshape((-1,))
     subjects_vec = data['subjectsVec'].reshape((-1,))
     vidlen_vec = data['videoLengthVec'].reshape((-1,))
