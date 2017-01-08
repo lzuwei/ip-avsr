@@ -118,14 +118,14 @@ def parse_options():
     options['no_reorder'] = False
     options['merge_samples'] = False
     options['output'] = None
-    options['delta_win'] = 9
+    options['concat_deltas'] = 2
     options['mergesize'] = 3
     parser = argparse.ArgumentParser()
     parser.add_argument('--remove_mean', action='store_true', help='remove mean image')
     parser.add_argument('--diff_image', action='store_true', help='compute difference of image')
     parser.add_argument('--samplewise_norm', action='store_true', help='samplewise normalize')
     parser.add_argument('--no_reorder', action='store_true', help='disable data reordering from f to c')
-    parser.add_argument('--concat_deltas', action='store_true', help='concat 1st and 2nd deltas')
+    parser.add_argument('--concat_deltas', help='concat 1st and 2nd deltas, default delta window: 2')
     parser.add_argument('--embed_temporal_info', help='embed temporal info to features [window],[step]. ie: 3,1')
     parser.add_argument('--output', help='write output to .mat file')
     parser.add_argument('--delta_win', help='size of delta window')
@@ -145,6 +145,8 @@ def parse_options():
         options['output'] = args.output
     if args.input:
         options['input'] = args.input[0]
+    if args.concat_deltas:
+        options['concat_deltas'] = int(args.concat_deltas)
     return options
 
 
@@ -167,6 +169,8 @@ def main():
         window, step = tuple([int(d) for d in options['embed_temporal_info'].split(',')])
         data_matrix, targets_vec, vid_len_vec = downsample(data_matrix, targets_vec, vid_len_vec, window, 0)
         data_matrix, vid_len_vec = embed_temporal_info(data_matrix, vid_len_vec, window, step)
+    if 'concat_deltas' in options:
+        data_matrix = concat_first_second_deltas(data_matrix, vid_len_vec, options['concat_deltas'])
 
     data['dataMatrix'] = data_matrix
 
