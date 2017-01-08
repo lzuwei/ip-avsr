@@ -118,7 +118,6 @@ def parse_options():
     options['no_reorder'] = False
     options['merge_samples'] = False
     options['output'] = None
-    options['concat_deltas'] = 2
     options['mergesize'] = 3
     parser = argparse.ArgumentParser()
     parser.add_argument('--remove_mean', action='store_true', help='remove mean image')
@@ -168,7 +167,7 @@ def main():
     if 'embed_temporal_info' in options:
         window, step = tuple([int(d) for d in options['embed_temporal_info'].split(',')])
         data_matrix, targets_vec, vid_len_vec = downsample(data_matrix, targets_vec, vid_len_vec, window, 0)
-        data_matrix, vid_len_vec = embed_temporal_info(data_matrix, vid_len_vec, window, step)
+        data_matrix, targets_vec, vid_len_vec = embed_temporal_info(data_matrix, targets_vec, vid_len_vec, window, step)
     if 'concat_deltas' in options:
         data_matrix = concat_first_second_deltas(data_matrix, vid_len_vec, options['concat_deltas'])
 

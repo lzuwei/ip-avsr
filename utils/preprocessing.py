@@ -555,7 +555,7 @@ def downsample(inputs, targets, input_len, merge_size, axis_to_delete=None):
            np.delete(targets, idx_to_remove, axis=axis_to_delete), input_len
 
 
-def embed_temporal_info(X, X_len, window, step):
+def embed_temporal_info(X, targets, X_len, window, step):
     """
     first downsample input to multiple of step
     repeat head and tail according to window
@@ -568,6 +568,7 @@ def embed_temporal_info(X, X_len, window, step):
     win = 6, step = 3, repeats = 6 - 3 + ceil(step/2) = 6 - 3 + 2 = 5
     startpos = floor(step/2) = floor(3/2) = 1
     :param X: input matrix in the shape (feature no, feature size)
+    :param targets: target matrix
     :param X_len: lengths of each sequence
     :param window: temporal window to embed features
     :param step: step size to move per temporal feature
@@ -575,12 +576,14 @@ def embed_temporal_info(X, X_len, window, step):
     """
     embedsize = X.shape[-1] * (window*2 + 1)
     res = np.zeros((np.sum(X_len)/step, embedsize), dtype=X.dtype)
+    res_targets = np.zeros((np.sum(X_len)/step,), dtype=targets.dtype)
     # select the sequence
     curr_idx = 0
     res_iter = 0
     for l in X_len:
         end_idx = curr_idx + l
         seq = X[curr_idx:end_idx]
+        seq_target = targets[curr_idx:end_idx]
         repeats = int(window - step + math.ceil(step/2.0))  # compute the number of elements to repeat
         # extend the sequence in the head and tail based on the number of repeats
         seq = np.concatenate((np.repeat(seq[:1, :], repeats, axis=0),
@@ -592,8 +595,9 @@ def embed_temporal_info(X, X_len, window, step):
         while startpos - repeats < l:
             temporal_feature = seq[startpos - window: startpos + window + 1].reshape((-1,))
             res[res_iter] = temporal_feature
+            res_targets[res_iter] = seq_target[0]
             startpos += step
             res_iter += 1
         curr_idx += l  # move to next sequence
     res_len = X_len / step
-    return res, res_len
+    return res, res_targets, res_len

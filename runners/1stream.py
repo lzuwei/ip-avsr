@@ -272,8 +272,8 @@ def main():
             # repeat targets based on max sequence len
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
-            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(
-                epoch + 1, i + 1, epochsize, len(X))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam with learning rate = {}'.format(
+                epoch + 1, i + 1, epochsize, len(X), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
             train(X, y, m, windowsize)
