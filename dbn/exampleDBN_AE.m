@@ -19,7 +19,7 @@ if type == 1 % AE
    %if type = 1, i.e., AE then the last layer should be linear and usually a
 % series of decreasing layers are used
     hiddenActivationFunctions = {'ReLu','ReLu','ReLu','linear'};%{'sigm','sigm','sigm','linear'}; 
-    hiddenLayers = [200 100 50 20]; 
+    hiddenLayers = [500 200 100 50]; 
    
 elseif type == 2 % classifier
     outputSize = size(train_y,2); % in case of classification it should be equal to the number of classes

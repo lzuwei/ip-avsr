@@ -115,7 +115,6 @@ def parse_options():
     options['remove_mean'] = False
     options['diff_image'] = False
     options['samplewise_norm'] = False
-    options['no_reorder'] = False
     options['merge_samples'] = False
     options['output'] = None
     options['mergesize'] = 3
@@ -123,11 +122,10 @@ def parse_options():
     parser.add_argument('--remove_mean', action='store_true', help='remove mean image')
     parser.add_argument('--diff_image', action='store_true', help='compute difference of image')
     parser.add_argument('--samplewise_norm', action='store_true', help='samplewise normalize')
-    parser.add_argument('--no_reorder', action='store_true', help='disable data reordering from f to c')
+    parser.add_argument('--reorder_data', help='redorder data from f to c convention. eg: 30,50')
     parser.add_argument('--concat_deltas', help='concat 1st and 2nd deltas, default delta window: 2')
     parser.add_argument('--embed_temporal_info', help='embed temporal info to features [window],[step]. ie: 3,1')
     parser.add_argument('--output', help='write output to .mat file')
-    parser.add_argument('--delta_win', help='size of delta window')
     parser.add_argument('input', nargs='+', help='input cuave .mat file to preprocess')
     args = parser.parse_args()
     if args.remove_mean:
@@ -138,8 +136,8 @@ def parse_options():
         options['samplewise_norm'] = args.samplewise_norm
     if args.embed_temporal_info:
         options['embed_temporal_info'] = args.embed_temporal_info
-    if args.no_reorder:
-        options['no_reorder'] = args.no_reorder
+    if args.reorder_data:
+        options['reorder_data'] = args.reorder_data
     if args.output:
         options['output'] = args.output
     if args.input:
@@ -156,8 +154,9 @@ def main():
     vid_len_vec = data['videoLengthVec'].astype('int').reshape((-1,))
     targets_vec = data['targetsVec'].reshape((-1,))
 
-    if not options['no_reorder']:
-        data_matrix = reorder_data(data_matrix, (30, 50))
+    if 'reorder_data' in options:
+        imagesize = tuple([int(d) for d in options['reorder_data'].split(',')])
+        data_matrix = reorder_data(data_matrix, imagesize)
     if options['samplewise_norm']:
         data_matrix = normalize_input(data_matrix)
     if options['remove_mean']:
