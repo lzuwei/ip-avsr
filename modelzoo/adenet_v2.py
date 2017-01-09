@@ -40,6 +40,8 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
 
+    l_delta_dct = DeltaLayer(l_dct, win, name='delta_dct')
+
     l_lstm_bn = LSTMLayer(
         l_delta, lstm_size, peepholes=use_peepholes,
         # We need to specify a separate input for masks
@@ -51,7 +53,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
         learn_init=True, grad_clipping=5., name='lstm_bn')
 
     l_lstm_dct = LSTMLayer(
-        l_dct, lstm_size, peepholes=use_peepholes,
+        l_delta_dct, lstm_size, peepholes=use_peepholes,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate
