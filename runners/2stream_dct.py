@@ -111,10 +111,12 @@ def parse_options():
     options = dict()
     options['config'] = 'config/bimodal_meanrm_raw_diff.ini'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', help='config file to use, default=config/bimodal_meanrm_raw_diff.ini')
-    parser.add_argument('--write_results', help='write results to file')
-    parser.add_argument('--learning_rate', help='learning rate')
-    parser.add_argument('--save_best', help='save best model')
+    parser.add_argument('--config', help='[CONFIG_FILE] config file to use, default=../cuave/config/1stream.ini')
+    parser.add_argument('--write_results', help='[FILE] write results to file')
+    parser.add_argument('--learning_rate', help='[LEARNING_RATE] learning rate')
+    parser.add_argument('--save_best', help='[FILE] save the best model')
+    parser.add_argument('--save_plot', help='[FILE_PREFIX] plot the train/validation '
+                                            'loss curve using user supplied prefix')
     args = parser.parse_args()
     if args.config:
         options['config'] = args.config
@@ -124,6 +126,8 @@ def parse_options():
         options['learning_rate'] = float(args.learning_rate)
     if args.save_best:
         options['save_best'] = args.save_best
+    if args.save_plot:
+        options['save_plot'] = args.save_plot
     return options
 
 
@@ -345,9 +349,18 @@ def main():
 
     print('Final Model')
     print('CR: {}, val loss: {}, Test CR: {}'.format(best_cr, best_val, test_cr))
+
+    # plot confusion matrix
+    table_str = plot_confusion_matrix(test_conf, output_classnames, fmt='pipe')
     print('confusion matrix: ')
-    plot_confusion_matrix(test_conf, output_classnames, fmt='latex')
-    plot_validation_cost(cost_train, cost_val, savefilename='valid_cost')
+    print(table_str)
+
+    if 'save_plot' in options:
+        prefix = options['save_plot']
+        plot_validation_cost(cost_train, cost_val, savefilename='{}.validloss.png'.format(prefix))
+        with open('{}.confmat.txt'.format(prefix)) as f:
+            f.write(table_str)
+            f.write('\n\n')
 
     if 'write_results' in options:
         print('writing results to {}'.format(options['write_results']))

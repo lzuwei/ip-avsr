@@ -156,7 +156,7 @@ def plot_validation_cost(train_error, val_error, class_rate=None, savefilename=N
                fancybox=False, shadow=False, ncol=5)
     # ax1.legend(lines, labels, loc='lower right')
     if savefilename:
-        plt.savefig('{}.png'.format(savefilename))
+        plt.savefig(savefilename)
     plt.show()
 
 
@@ -223,20 +223,26 @@ def visualize_activations(weights, examples, shape, weight_idx_to_visualize, sav
                                      None, 'Raw', 'Activations')
 
 
-def plot_confusion_matrix(conf_mat, headers, fmt='grid'):
+def plot_confusion_matrix(conf_mat, headers, fmt='pipe', savefilename=None):
     """
     pretty print confusion matrix in various formats
     plain, simple, grid, fancy_grid, pipe, orgtbl, rst, mediawiki, html, latex, latex_booktabs
+    defaults to 'pipe' which is a markdown parseable format.
     :param conf_mat: confusion matrix
     :param headers: list of headers eg: ['a','b','c','d']
-    :param fmt: grid, latex, html, rst, simple,
+    :param fmt: pipe, grid, latex, html, rst, simple,
     :return:
     """
     data = []
     for i, header in enumerate(headers):
         row = [header] + conf_mat[i].tolist()
         data.append(row)
-    print(tabulate(data, headers, tablefmt=fmt))
+    table = tabulate(data, headers, tablefmt=fmt)
+    if savefilename:
+        with open(savefilename, mode='a') as f:
+            f.write(table)
+            f.write('\n')
+    return table
 
 
 def reshape_images_order(X, shape, fr='f', to='c'):

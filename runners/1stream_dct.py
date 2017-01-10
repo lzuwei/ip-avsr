@@ -101,34 +101,23 @@ def parse_options():
     options = dict()
     options['config'] = 'config/unimodal_dct.ini'
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', help='config file to use, default=config/unimodal_dct.ini')
-    parser.add_argument('--write_results', help='write results to file')
-    parser.add_argument('--save_best', help='save best model')
-    parser.add_argument('--dct_data', help='DCT Features Data File')
-    parser.add_argument('--no_coeff', help='Number of DCT Coefficients')
-    parser.add_argument('--no_epochs', help='Max epochs to run')
-    parser.add_argument('--epochsize', help='Number of mini batches to run for each epoch')
-    parser.add_argument('--batchsize', help='Mini batch size')
-    parser.add_argument('--validation_window', help='validation window size')
+    parser.add_argument('--config', help='[CONFIG_FILE] config file to use, default=../cuave/config/1stream.ini')
+    parser.add_argument('--write_results', help='[FILE] write results to file')
+    parser.add_argument('--learning_rate', help='[LEARNING_RATE] learning rate')
+    parser.add_argument('--save_best', help='[FILE] save the best model')
+    parser.add_argument('--save_plot', help='[FILE_PREFIX] plot the train/validation '
+                                            'loss curve using user supplied prefix')
     args = parser.parse_args()
     if args.config:
         options['config'] = args.config
     if args.write_results:
         options['write_results'] = args.write_results
-    if args.dct_data:
-        options['dct_data'] = args.dct_data
-    if args.no_coeff:
-        options['no_coeff'] = int(args.no_coeff)
-    if args.no_epochs:
-        options['no_epochs'] = int(args.no_epochs)
-    if args.validation_window:
-        options['validation_window'] = int(args.validation_window)
-    if args.epochsize:
-        options['epochsize'] = int(args.epochsize)
-    if args.batchsize:
-        options['batchsize'] = int(args.batchsize)
+    if args.learning_rate:
+        options['learning_rate'] = float(args.learning_rate)
     if args.save_best:
         options['save_best'] = args.save_best
+    if args.save_plot:
+        options['save_plot'] = args.save_plot
     return options
 
 
@@ -315,9 +304,18 @@ def main():
 
     print('Final Model')
     print('CR: {}, val loss: {}, Test CR: {}'.format(best_cr, best_val, test_cr))
+
+    # plot confusion matrix
+    table_str = plot_confusion_matrix(test_conf, output_classnames, fmt='pipe')
     print('confusion matrix: ')
-    plot_confusion_matrix(test_conf, output_classnames, fmt='latex')
-    plot_validation_cost(cost_train, cost_val, savefilename='valid_cost')
+    print(table_str)
+
+    if 'save_plot' in options:
+        prefix = options['save_plot']
+        plot_validation_cost(cost_train, cost_val, savefilename='{}.validloss.png'.format(prefix))
+        with open('{}.confmat.txt'.format(prefix)) as f:
+            f.write(table_str)
+            f.write('\n\n')
 
     if 'write_results' in options:
         print('writing results to {}'.format(options['write_results']))
