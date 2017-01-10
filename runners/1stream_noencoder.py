@@ -105,6 +105,7 @@ def parse_options():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='config file to use, default=config/unimodal_dct.ini')
     parser.add_argument('--write_results', help='write results to file')
+    parser.add_argument('--save_best', help='save best model')
     parser.add_argument('--dct_data', help='DCT Features Data File')
     parser.add_argument('--no_coeff', help='Number of DCT Coefficients')
     parser.add_argument('--no_epochs', help='Max epochs to run')
@@ -128,6 +129,8 @@ def parse_options():
         options['epochsize'] = int(args.epochsize)
     if args.batchsize:
         options['batchsize'] = int(args.batchsize)
+    if args.save_best:
+        options['save_best'] = args.save_best
     return options
 
 
@@ -148,7 +151,14 @@ def main():
     print('preprocessing dataset...')
     data = load_mat_file(config.get('stream1', 'data'))
     stream1_dim = config.getint('stream1', 'input_dimensions')
-    matlab_target_offset = config.getboolean('stream1', 'matlab_target_offset')
+    imagesize = tuple([int(d) for d in config.get('stream1', 'imagesize').split(',')])
+
+    # data preprocessing options
+    reorderdata = config.getboolean('stream1', 'reorderdata')
+    diffimage = config.getboolean('stream1', 'diffimage')
+    meanremove = config.getboolean('stream1', 'meanremove')
+    samplewisenormalize = config.getboolean('stream1', 'samplewisenormalize')
+    featurewisenormalize = config.getboolean('stream1', 'featurewisenormalize')
 
     output_classes = config.getint('lstm_classifier', 'output_classes')
     output_classnames = config.get('lstm_classifier', 'output_classnames').split(',')
@@ -157,6 +167,7 @@ def main():
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('lstm_classifier', 'weight_init')
     use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('lstm_classifier',
                                                                                                   'use_peepholes')
+    matlab_target_offset = config.getboolean('lstm_classifier', 'matlab_target_offset')
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
@@ -186,19 +197,37 @@ def main():
     subjects_vec = data['subjectsVec'].reshape((-1,))
     vidlen_vec = data['videoLengthVec'].reshape((-1,))
 
-    train_dct, train_y, train_vidlens, train_subjects, \
-    val_dct, val_y, val_vidlens, val_subjects, \
-    test_dct, test_y, test_vidlens, test_subjects = split_seq_data(data_matrix, targets_vec, subjects_vec, vidlen_vec,
+    if reorderdata:
+        data_matrix = reorder_data(data_matrix, (imagesize[0], imagesize[1]))
+
+    train_X, train_y, train_vidlens, train_subjects, \
+    val_X, val_y, val_vidlens, val_subjects, \
+    test_X, test_y, test_vidlens, test_subjects = split_seq_data(data_matrix, targets_vec, subjects_vec, vidlen_vec,
                                                                    train_subject_ids, val_subject_ids, test_subject_ids)
     if matlab_target_offset:
         train_y -= 1
         val_y -= 1
         test_y -= 1
 
-    # featurewise normalize dct features
-    train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
-    val_dct = (val_dct - dct_mean) / dct_std
-    test_dct = (test_dct - dct_mean) / dct_std
+    if meanremove:
+        train_X = sequencewise_mean_image_subtraction(train_X, train_vidlens)
+        val_X = sequencewise_mean_image_subtraction(val_X, val_vidlens)
+        test_X = sequencewise_mean_image_subtraction(test_X, test_vidlens)
+
+    if diffimage:
+        train_X = compute_diff_images(train_X, train_vidlens)
+        val_X = compute_diff_images(val_X, val_vidlens)
+        test_X = compute_diff_images(test_X, test_vidlens)
+
+    if samplewisenormalize:
+        train_X = normalize_input(train_X)
+        val_X = normalize_input(val_X)
+        test_X = normalize_input(test_X)
+
+    if featurewisenormalize:
+        train_X, mean, std = featurewise_normalize_sequence(train_X)
+        val_X = (val_X - mean) / std
+        test_X = (test_X - mean) / std
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -249,19 +278,19 @@ def main():
     best_tr = float('inf')
     best_cr = 0.0
 
-    datagen = gen_lstm_batch_random(train_dct, train_y, train_vidlens, batchsize=batchsize)
-    val_datagen = gen_lstm_batch_random(val_dct, val_y, val_vidlens, batchsize=len(val_vidlens))
-    test_datagen = gen_lstm_batch_random(test_dct, test_y, test_vidlens, batchsize=len(test_vidlens))
+    datagen = gen_lstm_batch_random(train_X, train_y, train_vidlens, batchsize=batchsize)
+    val_datagen = gen_lstm_batch_random(val_X, val_y, val_vidlens, batchsize=len(val_vidlens))
+    test_datagen = gen_lstm_batch_random(test_X, test_y, test_vidlens, batchsize=len(test_vidlens))
     integral_lens = compute_integral_len(train_vidlens)
 
     # We'll use this "validation set" to periodically check progress
     X_val, y_val, mask_val, idxs_val = next(val_datagen)
     integral_lens_val = compute_integral_len(val_vidlens)
-    dct_val = gen_seq_batch_from_idx(val_dct, idxs_val, val_vidlens, integral_lens_val, np.max(val_vidlens))
+    dct_val = gen_seq_batch_from_idx(val_X, idxs_val, val_vidlens, integral_lens_val, np.max(val_vidlens))
 
     X_test, y_test, mask_test, idxs_test = next(test_datagen)
     integral_lens_test = compute_integral_len(test_vidlens)
-    dct_test = gen_seq_batch_from_idx(test_dct, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
+    dct_test = gen_seq_batch_from_idx(test_X, idxs_test, test_vidlens, integral_lens_test, np.max(test_vidlens))
 
     # reshape the targets for validation
     y_val_evaluate = y_val
@@ -274,7 +303,7 @@ def main():
             # repeat targets based on max sequence len
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
-            d = gen_seq_batch_from_idx(train_dct, batch_idxs, train_vidlens, integral_lens, np.max(train_vidlens))
+            d = gen_seq_batch_from_idx(train_X, batch_idxs, train_vidlens, integral_lens, np.max(train_vidlens))
             print_str = 'Epoch {} batch {}/{}: {} examples using adam with learning rate = {}'.format(
                 epoch + 1, i + 1, epochsize, len(y), learning_rate)
             print(print_str, end='')
@@ -303,6 +332,7 @@ def main():
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))
+            best_params = las.layers.get_all_param_values(network)
         else:
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f} ({:.1f}sec)"
@@ -318,9 +348,16 @@ def main():
     plot_validation_cost(cost_train, cost_val, savefilename='valid_cost')
 
     if 'write_results' in options:
+        print('writing results to {}'.format(options['write_results']))
         results_file = options['write_results']
         with open(results_file, mode='a') as f:
             f.write('{},{},{}\n'.format(test_cr, best_cr, best_val))
+
+    if 'save_best' in options:
+        print('saving best model...')
+        las.layers.set_all_param_values(network, best_params)
+        save_model_params(network, options['save_best'])
+        print('best model saved to {}'.format(options['save_best']))
 
 
 if __name__ == '__main__':

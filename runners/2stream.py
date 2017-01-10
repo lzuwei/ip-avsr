@@ -113,6 +113,7 @@ def parse_options():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', help='config file to use, default=config/bimodal_meanrm_raw_diff.ini')
     parser.add_argument('--write_results', help='write results to file')
+    parser.add_argument('--save_best', help='save best model')
     parser.add_argument('--learning_rate', help='learning rate')
     args = parser.parse_args()
     if args.config:
@@ -121,6 +122,8 @@ def parse_options():
         options['write_results'] = args.write_results
     if args.learning_rate:
         options['learning_rate'] = float(args.learning_rate)
+    if args.save_best:
+        options['save_best'] = args.save_best
     return options
 
 
@@ -134,7 +137,6 @@ def main():
     print('CLI options: {}'.format(options.items()))
 
     print('Reading Config File: {}...'.format(config_file))
-    print(config.items('data'))
     print(config.items('stream1'))
     print(config.items('stream2'))
     print(config.items('lstm_classifier'))
@@ -304,8 +306,8 @@ def main():
             y = y.repeat(m.shape[-1], axis=-1)
             X_diff = gen_seq_batch_from_idx(s2_train_X, batch_idxs,
                                             s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
-            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(
-                epoch + 1, i + 1, epochsize, len(X))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam with learning rate = {}'.format(
+                epoch + 1, i + 1, epochsize, len(X), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
             train(X, y, m, X_diff, windowsize)
@@ -332,6 +334,7 @@ def main():
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))
+            best_params = las.layers.get_all_param_values(network)
         else:
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f} ({:.1f}sec)"
@@ -347,9 +350,16 @@ def main():
     plot_validation_cost(cost_train, cost_val, savefilename='valid_cost')
 
     if 'write_results' in options:
+        print('writing results to {}'.format(options['write_results']))
         results_file = options['write_results']
         with open(results_file, mode='a') as f:
             f.write('{},{},{}\n'.format(test_cr, best_cr, best_val))
+
+    if 'save_best' in options:
+        print('saving best model...')
+        las.layers.set_all_param_values(network, best_params)
+        save_model_params(network, options['save_best'])
+        print('best model saved to {}'.format(options['save_best']))
 
 
 if __name__ == '__main__':

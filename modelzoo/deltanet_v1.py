@@ -27,7 +27,7 @@ def create_model(input_shape, input_var, mask_shape, mask_var, window, lstm_size
     l_sum = ElemwiseSumLayer([f_lstm, b_lstm], name='sum')
 
     # reshape to (num_examples * seq_len, lstm_size)
-    l_reshape = ReshapeLayer(l_sum, (-1, lstm_size))
+    l_reshape = ReshapeLayer(l_sum, (-1, lstm_size), name='reshape')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,
