@@ -23,4 +23,4 @@ examples/
 *.png
 *.sh
 *.csv
-runners/*.txt
+runners/experiments/
