@@ -313,7 +313,7 @@ def main():
     if 'save_plot' in options:
         prefix = options['save_plot']
         plot_validation_cost(cost_train, cost_val, savefilename='{}.validloss.png'.format(prefix))
-        with open('{}.confmat.txt'.format(prefix)) as f:
+        with open('{}.confmat.txt'.format(prefix), mode='a') as f:
             f.write(table_str)
             f.write('\n\n')
 
