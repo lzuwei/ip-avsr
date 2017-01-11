@@ -79,7 +79,7 @@ def evaluate_model2(X_val, y_val, mask_val, eval_fn):
     seq_lens = np.sum(mask_val, axis=-1)
 
     # for each example, we only consider argmax of the seq len
-    votes = np.zeros((10,), dtype='int')
+    votes = np.zeros((num_classes,), dtype='int')
     for i, eg in enumerate(output):
         predictions = np.argmax(eg[:seq_lens[i]], axis=-1)
         for cls in range(num_classes):
@@ -129,32 +129,39 @@ def main():
     config.read(config_file)
 
     print('Reading Config File: {}...'.format(config_file))
-    print(config.items('data'))
-    print(config.items('models'))
+    print(config.items('stream1'))
+    print(config.items('lstm_classifier'))
     print(config.items('training'))
 
     print('CLI options: {}'.format(options.items()))
 
     print('preprocessing dataset...')
-    data = load_mat_file(config.get('data', 'images'))
-    output_classes = config.getint('models', 'output_classes')
-    output_classnames = config.get('models', 'output_classnames').split(',')
-    lstm_size = config.getint('models', 'lstm_size')
-    no_coeff = config.getint('models', 'no_coeff')
-    matlab_target_offset = config.getboolean('models', 'matlab_target_offset')
+    data = load_mat_file(config.get('stream1', 'data'))
+    stream1_dim = config.getint('stream1', 'input_dimensions')
+
+    output_classes = config.getint('lstm_classifier', 'output_classes')
+    output_classnames = config.get('lstm_classifier', 'output_classnames').split(',')
+    matlab_target_offset = config.getboolean('lstm_classifier', 'matlab_target_offset')
+    lstm_size = config.getint('lstm_classifier', 'lstm_size')
+    weight_init = options['weight_init'] if 'weight_init' in options else config.get('lstm_classifier', 'weight_init')
+    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('lstm_classifier',
+                                                                                                  'use_peepholes')
+    windowsize = config.getint('lstm_classifier', 'windowsize')
+
+    # data preprocessing options
+    meanremove = config.getboolean('stream1', 'meanremove')
+    samplewisenormalize = config.getboolean('stream1', 'samplewisenormalize')
+    featurewisenormalize = config.getboolean('stream1', 'featurewisenormalize')
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
         if 'validation_window' in options else config.getint('training', 'validation_window')
     num_epoch = int(options['num_epoch']) if 'num_epoch' in options else config.getint('training', 'num_epoch')
-    weight_init = options['weight_init'] if 'weight_init' in options else config.get('training', 'weight_init')
+
     learning_rate = options['learning_rate'] if 'learning_rate' in options \
         else config.getfloat('training', 'learning_rate')
-    use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('training',
-                                                                                                  'use_peepholes')
     epochsize = config.getint('training', 'epochsize')
     batchsize = config.getint('training', 'batchsize')
-    windowsize = config.getint('training', 'windowsize')
 
     weight_init_fn = las.init.GlorotUniform()
     if weight_init == 'glorot':
@@ -170,10 +177,16 @@ def main():
     val_subject_ids = read_data_split_file(config.get('training', 'val_subjects_file'))
     test_subject_ids = read_data_split_file(config.get('training', 'test_subjects_file'))
 
-    data_matrix = data['dataMatrix']
+    data_matrix = data['dataMatrix'].astype('float32')
     targets_vec = data['targetsVec'].reshape((-1,))
     subjects_vec = data['subjectsVec'].reshape((-1,))
     vidlen_vec = data['videoLengthVec'].reshape((-1,))
+
+    if samplewisenormalize:
+        data_matrix = normalize_input(data_matrix)
+
+    if meanremove:
+        data_matrix = sequencewise_mean_image_subtraction(data_matrix, vidlen_vec)
 
     data_matrix = concat_first_second_deltas(data_matrix, vidlen_vec, windowsize)
 
@@ -187,9 +200,10 @@ def main():
         test_y -= 1
 
     # featurewise normalize dct features
-    train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
-    val_dct = (val_dct - dct_mean) / dct_std
-    test_dct = (test_dct - dct_mean) / dct_std
+    if featurewisenormalize:
+        train_dct, dct_mean, dct_std = featurewise_normalize_sequence(train_dct)
+        val_dct = (val_dct - dct_mean) / dct_std
+        test_dct = (test_dct - dct_mean) / dct_std
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -203,7 +217,7 @@ def main():
     targets = T.imatrix('targets')
 
     print('constructing end to end model...')
-    network = lstm_classifier_majority_vote.create_model((None, None, no_coeff*3), inputs,
+    network = lstm_classifier_majority_vote.create_model((None, None, stream1_dim*3), inputs,
                                                          (None, None), mask,
                                                          lstm_size, output_classes,
                                                          weight_init_fn, use_peepholes)
@@ -265,8 +279,8 @@ def main():
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
             d = gen_seq_batch_from_idx(train_dct, batch_idxs, train_vidlens, integral_lens, np.max(train_vidlens))
-            print_str = 'Epoch {} batch {}/{}: {} examples using adam'.format(
-                epoch + 1, i + 1, epochsize, len(y))
+            print_str = 'Epoch {} batch {}/{}: {} examples using adam with learning rate = {}'.format(
+                epoch + 1, i + 1, epochsize, len(y), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
             train(d, y, m)

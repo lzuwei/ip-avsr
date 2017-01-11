@@ -81,7 +81,7 @@ def evaluate_model2(X_val, y_val, mask_val, window, eval_fn):
     seq_lens = np.sum(mask_val, axis=-1)
 
     # for each example, we only consider argmax of the seq len
-    votes = np.zeros((10,), dtype='int')
+    votes = np.zeros((num_classes,), dtype='int')
     for i, eg in enumerate(output):
         predictions = np.argmax(eg[:seq_lens[i]], axis=-1)
         for cls in range(num_classes):
