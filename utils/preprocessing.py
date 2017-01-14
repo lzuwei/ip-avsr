@@ -601,3 +601,60 @@ def embed_temporal_info(X, targets, X_len, window, step):
         curr_idx += l  # move to next sequence
     res_len = X_len / step
     return res, res_targets, res_len
+
+
+def force_align(x1, x2, mode='fill'):
+    """
+    Force Align 2 streams of data to equal lengths
+    :param x1: stream 1 tuple consisting (X, targets, sequence lengths)
+    :param x2: stream 2 tuple consisting (X, targets, sequence lengths)
+    :param mode: 'fill', 'discard'
+    :return: x1, x2 streams forced aligned
+    """
+    x1, x1_targets, x1_lens = x1
+    x2, x2_targets, x2_lens= x2
+    x1_new = []
+    x1_targets_new = []
+    x2_new = []
+    x2_targets_new = []
+    x1_curr_idx = 0
+    x2_curr_idx = 0
+    for i, l1 in enumerate(x1_lens):
+        l2 = x2_lens[i]
+        difference = l1 - l2
+        if mode == 'fill':
+            if difference < 0:
+                '''fill x1 with difference'''
+                difference = abs(difference)
+                for j in range(l1):
+                    x1_new.append(x1[x1_curr_idx + j])
+                    x1_targets_new.append(x1_targets[x1_curr_idx + j])
+                '''[0][1][2][3]'''
+                last_element = x1[x1_curr_idx + l1 - 1]
+                last_element_target = x1_targets[x1_curr_idx + l1 - 1]
+                for j in range(difference):
+                    x1_new.append(np.copy(last_element))
+                    x1_targets_new.append(np.copy(last_element_target))
+                x1_lens[i] = l1 + difference  # update the lens
+                for j in range(l2):
+                    x2_new.append(x2[x2_curr_idx + j])
+                    x2_targets_new.append(x2_targets[x2_curr_idx + j])
+            else:
+                '''fill x2 with difference'''
+                for j in range(l2):
+                    x2_new.append(x2[x2_curr_idx + j])
+                    x2_targets_new.append(x2_targets[x1_curr_idx + j])
+                '''[0][1][2][3]'''
+                last_element = x2[x2_curr_idx + l1 - 1]
+                last_element_target = x2_targets[x2_curr_idx + l2 - 1]
+                for j in range(difference):
+                    x2_new.append(np.copy(last_element))
+                    x2_targets_new.append(np.copy(last_element_target))
+                x2_lens[i] = l2 + difference  # update the lens
+                for j in range(l1):
+                    x1_new.append(x1[x1_curr_idx + j])
+                    x1_targets_new.append(x1_targets[x1_curr_idx + j])
+            x1_curr_idx += l1
+            x2_curr_idx += l2
+        # TODO: discard mode
+    return (np.array(x1_new), np.array(x1_targets_new), x1_lens), (np.array(x2_new), np.array(x2_targets_new), x2_lens)

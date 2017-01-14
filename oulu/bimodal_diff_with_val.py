@@ -314,9 +314,9 @@ def main():
     # mean remove dct features
     dct_feats = sequencewise_mean_image_subtraction(dct_feats, video_lens)
 
-    train_subject_ids = read_data_split_file('data/train.txt')
-    val_subject_ids = read_data_split_file('data/val.txt')
-    test_subject_ids = read_data_split_file('data/test.txt')
+    train_subject_ids = read_data_split_file('data/train_30_10_12.txt')
+    val_subject_ids = read_data_split_file('data/val_30_10_12.txt')
+    test_subject_ids = read_data_split_file('data/test_30_10_12.txt')
     print('Train: {}'.format(train_subject_ids))
     print('Validation: {}'.format(val_subject_ids))
     print('Test: {}'.format(test_subject_ids))
@@ -333,6 +333,10 @@ def main():
     train_X = normalize_input(train_X, centralize=True)
     val_X = normalize_input(val_X, centralize=True)
     test_X = normalize_input(test_X, centralize=True)
+
+    train_y -= 1
+    val_y -= 1
+    test_y -= 1
 
     print('loading pretrained encoder: {}...'.format(ae_pretrained))
     ae = load_dbn(ae_pretrained)

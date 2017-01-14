@@ -204,6 +204,15 @@ def main():
     subjects_vec = s1_data['subjectsVec'].reshape((-1,))
     vidlen_vec = s1_data['videoLengthVec'].reshape((-1,))
 
+    force_align_data = config.getboolean('stream1', 'force_align_data')
+    if force_align_data:
+        s2_targets_vec = s2_data['targetsVec'].reshape((-1,))
+        s2_vidlen_vec = s2_data['videoLengthVec'].reshape((-1,))
+        s1_new, s2_new = force_align((s1_data_matrix, targets_vec, vidlen_vec),
+                                     (s2_data_matrix, s2_targets_vec, s2_vidlen_vec))
+        s1_data_matrix, targets_vec, vidlen_vec = s1_new
+        s2_data_matrix, _, _ = s2_new
+
     if matlab_target_offset:
         targets_vec -= 1
 
