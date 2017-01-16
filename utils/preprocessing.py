@@ -643,7 +643,7 @@ def force_align(x1, x2, mode='fill'):
                 '''fill x2 with difference'''
                 for j in range(l2):
                     x2_new.append(x2[x2_curr_idx + j])
-                    x2_targets_new.append(x2_targets[x1_curr_idx + j])
+                    x2_targets_new.append(x2_targets[x2_curr_idx + j])
                 '''[0][1][2][3]'''
                 last_element = x2[x2_curr_idx + l1 - 1]
                 last_element_target = x2_targets[x2_curr_idx + l2 - 1]

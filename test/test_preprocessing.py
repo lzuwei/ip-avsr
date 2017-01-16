@@ -5,8 +5,8 @@ from utils.preprocessing import *
 
 class TestPreprocessingMethods(unittest.TestCase):
     def test_forcealign(self):
-        stream1 = load_mat_file('../cuave/data/allData_mouthROIs_basedOnMouthCenter.mat')
-        stream2 = load_mat_file('../cuave/data/mfcc_w3s3.mat')
+        stream1 = load_mat_file('../oulu/data/allMouthROIsResized_frontal.mat')
+        stream2 = load_mat_file('../oulu/data/mfcc_w3s3.mat')
 
         s1_data_matrix = stream1['dataMatrix'].astype('float32')
         s1_targets = stream1['targetsVec'].reshape((-1,))
