@@ -35,8 +35,8 @@ def load_decoder(path, shapes, nonlinearities):
     shapes = [int(s) for s in shapes.split(',')]
     nonlinearities = [select_nonlinearity(nonlinearity) for nonlinearity in nonlinearities.split(',')]
     for i in range(len(shapes)):
-        weights.append(nn['w{}'.format(i+1)])
-        biases.append(nn['b{}'.format(i+1)][0])
+        weights.append(nn['w{}'.format(i+1)].astype('float32'))
+        biases.append(nn['b{}'.format(i+1)][0].astype('float32'))
     return weights, biases, shapes, nonlinearities
 
 
