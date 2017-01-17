@@ -612,7 +612,7 @@ def force_align(x1, x2, mode='fill'):
     :return: x1, x2 streams forced aligned
     """
     x1, x1_targets, x1_lens = x1
-    x2, x2_targets, x2_lens= x2
+    x2, x2_targets, x2_lens = x2
     x1_new = []
     x1_targets_new = []
     x2_new = []
