@@ -530,13 +530,13 @@ def apply_zca_whitening(X):
     return X
 
 
-def downsample(inputs, targets, input_len, merge_size, axis_to_delete=None):
+def factorize(inputs, targets, input_len, multipleof, axis_to_delete=None):
     """
-    downsample inputs based on merge size
+    factorize inputs to a factor of a given multiple
     :param inputs: input data vector arranged as (input size, feature len)
     :param targets: targets data vector
     :param input_len: input data vector original length of shape (1,)
-    :param merge_size: number of frames to merge
+    :param multipleof: given multiple to factorize input
     :return: merged samples of shape (input size / merge size, merged features)
     """
     # if 1 dimension, reshape to 2 dim array
@@ -546,11 +546,11 @@ def downsample(inputs, targets, input_len, merge_size, axis_to_delete=None):
     curr_idx = 0
     for l in input_len:
         end_idx = curr_idx + l
-        remainder = l % merge_size
+        remainder = l % multipleof
         # randomly remove items if it is not divisible by merge size
         idx_to_remove += np.random.permutation(range(curr_idx, end_idx))[:remainder].tolist()
         curr_idx += l
-    input_len = input_len - (input_len % merge_size)
+    input_len = input_len - (input_len % multipleof)
     return np.delete(inputs, idx_to_remove, axis=axis_to_delete),\
            np.delete(targets, idx_to_remove, axis=axis_to_delete), input_len
 

@@ -90,12 +90,12 @@ def presplit_dataprocessing(data_matrix, vidlens, config, stream_name, **kwargs)
     if reorderdata:
         imagesize = kwargs['imagesize']
         data_matrix = reorder_data(data_matrix, imagesize)
-    if samplewisenormalize:
-        data_matrix = normalize_input(data_matrix)
     if meanremove:
         data_matrix = sequencewise_mean_image_subtraction(data_matrix, vidlens)
     if diffimage:
         data_matrix = compute_diff_images(data_matrix, vidlens)
+    if samplewisenormalize:
+        data_matrix = normalize_input(data_matrix)
     return data_matrix
 
 

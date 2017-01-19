@@ -96,7 +96,7 @@ def test_mergesamples():
     s = np.array([[1],[2],[3],[4],[1],[2],[3],[4],[1],[2],[3],[4],[1],[2],[3],[4],[5]])
     # s = np.array([1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4,5])
     l = [4,4,4,5]
-    r = downsample(s, l, 3, 0)
+    r = factorize(s, l, 3, 0)
     print(r)
 
 
@@ -105,7 +105,7 @@ def test_embed_temporal_info():
                   [1,1,1],[2,2,2],[3,3,3],[4,4,4],[5,5,5]])
     # s = np.array([1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4,5])
     l = np.array([4,4,4,5])
-    r, l = downsample(s, l, 3, 0)
+    r, l = factorize(s, l, 3, 0)
     r, l = embed_temporal_info(r, l, 3, 3)
     print(r)
 
@@ -165,7 +165,7 @@ def main():
         data_matrix = compute_diff_images(data_matrix, vid_len_vec)
     if 'embed_temporal_info' in options:
         window, step = tuple([int(d) for d in options['embed_temporal_info'].split(',')])
-        data_matrix, targets_vec, vid_len_vec = downsample(data_matrix, targets_vec, vid_len_vec, window, 0)
+        data_matrix, targets_vec, vid_len_vec = factorize(data_matrix, targets_vec, vid_len_vec, step, 0)
         data_matrix, targets_vec, vid_len_vec = embed_temporal_info(data_matrix, targets_vec, vid_len_vec, window, step)
     if 'concat_deltas' in options:
         data_matrix = concat_first_second_deltas(data_matrix, vid_len_vec, options['concat_deltas'])
