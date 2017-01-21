@@ -658,3 +658,54 @@ def force_align(x1, x2, mode='fill'):
             x2_curr_idx += l2
         # TODO: discard mode
     return (np.array(x1_new), np.array(x1_targets_new), x1_lens), (np.array(x2_new), np.array(x2_targets_new), x2_lens)
+
+
+def extract_stream_elements(streams):
+    """
+    extract list of streams into lists of constituent elements
+    :param streams: list of tuple (input, target, input_lens)
+    :return: tuple of list(input), list(target), list(input_lens)
+    """
+    return tuple([list(tup) for tup in zip(*streams)])
+
+
+def multistream_force_align(orig_streams, mode='fill'):
+    """
+    force align multiple streams to be of the same length
+    :param orig_streams: original streams in a list of tuple (input, target, input_lens)
+    :param mode: 'fill', 'discard' missing or excess data
+    :return: list of new streams of tuple (new_input, new_target, new_lens)
+    """
+    INPUT_IDX = 0
+    TARGET_IDX = 1
+    LEN_IDX = 2
+    new_streams = [([], [], s[2]) for s in orig_streams]
+    curr_idxs = [0]*len(orig_streams)
+    inputs, targets, input_lens = extract_stream_elements(orig_streams)
+    # for each sequence
+    for i, l1 in enumerate(input_lens[0]):
+        # compute the lens, find stream with longest length
+        lens = [input_len_vec[i] for input_len_vec in input_lens]
+        max_idx = np.argmax(lens)
+        # compute the number of copies to generate
+        copies_to_make = [input_lens[max_idx][i] - l[i] for l in input_lens]
+        # for each stream, append the original stream and copies to make to new stream
+        for j in range(len(orig_streams)):
+            input_vec = inputs[j]
+            target_vec = targets[j]
+            l = lens[j]  # length of sequence for current stream
+            for k in range(l):
+                new_streams[j][INPUT_IDX].append(input_vec[curr_idxs[j] + k])
+                new_streams[j][TARGET_IDX].append(target_vec[curr_idxs[j] + k])
+            copies = copies_to_make[j]
+            # make copies to fill shorter streams
+            for k in range(copies):
+                last_element = input_vec[curr_idxs[j] + l - 1]
+                last_element_target = target_vec[curr_idxs[j] + l - 1]
+                new_streams[j][INPUT_IDX].append(np.copy(last_element))
+                new_streams[j][TARGET_IDX].append(np.copy(last_element_target))
+            new_streams[j][LEN_IDX][i] = l + copies
+            curr_idxs[j] += l
+    # convert the lists to numpy arrays
+    new_streams = [(np.array(x[INPUT_IDX]), np.array(x[TARGET_IDX]), x[LEN_IDX]) for x in new_streams]
+    return new_streams

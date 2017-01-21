@@ -1,11 +1,13 @@
 from __future__ import print_function
 import sys
+
 sys.path.insert(0, '../')
 import time
 import ConfigParser
 import argparse
 
 import matplotlib
+
 matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
 from utils.preprocessing import *
@@ -24,7 +26,7 @@ import lasagne as las
 import numpy as np
 from lasagne.updates import adam
 
-from modelzoo import adenet_3stream, adenet_3stream_dropout
+from modelzoo import adenet_3stream, adenet_3stream_dropout, adenet_4stream
 from utils.plotting_utils import print_network
 
 
@@ -35,8 +37,8 @@ def load_decoder(path, shapes, nonlinearities):
     shapes = [int(s) for s in shapes.split(',')]
     nonlinearities = [select_nonlinearity(nonlinearity) for nonlinearity in nonlinearities.split(',')]
     for i in range(len(shapes)):
-        weights.append(nn['w{}'.format(i+1)].astype('float32'))
-        biases.append(nn['b{}'.format(i+1)][0].astype('float32'))
+        weights.append(nn['w{}'.format(i + 1)].astype('float32'))
+        biases.append(nn['b{}'.format(i + 1)][0].astype('float32'))
     return weights, biases, shapes, nonlinearities
 
 
@@ -45,19 +47,20 @@ def configure_theano():
     sys.setrecursionlimit(10000)
 
 
-def evaluate_model2(X_s1_val, X_s2_val, X_s3_val, y_val, mask_val, window_size, eval_fn):
+def evaluate_model2(X_s1_val, X_s2_val, X_s3_val, X_s4_val, y_val, mask_val, window_size, eval_fn):
     """
     Evaluate a lstm model
     :param X_s1_val: validation inputs for stream 1
     :param X_s2_val: validation inputs for stream 2
     :param X_s3_val: validation inputs for stream 3
+    :param X_s4_val: validation inputs for stream 4
     :param y_val: validation targets
     :param mask_val: input masks for variable sequences
     :param window_size: size of window for computing delta coefficients
     :param eval_fn: evaluation function
     :return: classification rate, confusion matrix
     """
-    output = eval_fn(X_s1_val, X_s2_val, X_s3_val, mask_val, window_size)
+    output = eval_fn(X_s1_val, X_s2_val, X_s3_val, X_s4_val, mask_val, window_size)
     num_classes = output.shape[-1]
     confusion_matrix = np.zeros((num_classes, num_classes), dtype='int')
     ix = np.zeros((X_s1_val.shape[0],), dtype='int')
@@ -165,7 +168,7 @@ def main():
     s2_inputdim = config.getint('stream2', 'input_dimensions')
     s2_shape = config.get('stream2', 'shape')
     s2_nonlinearities = config.get('stream2', 'nonlinearities')
-    
+
     # stream 3
     s3_data = load_mat_file(config.get('stream3', 'data'))
     s3_imagesize = tuple([int(d) for d in config.get('stream3', 'imagesize').split(',')])
@@ -173,6 +176,14 @@ def main():
     s3_inputdim = config.getint('stream3', 'input_dimensions')
     s3_shape = config.get('stream3', 'shape')
     s3_nonlinearities = config.get('stream3', 'nonlinearities')
+
+    # stream 4
+    s4_data = load_mat_file(config.get('stream4', 'data'))
+    s4_imagesize = tuple([int(d) for d in config.get('stream4', 'imagesize').split(',')])
+    s4 = config.get('stream4', 'model')
+    s4_inputdim = config.getint('stream4', 'input_dimensions')
+    s4_shape = config.get('stream4', 'shape')
+    s4_nonlinearities = config.get('stream4', 'nonlinearities')
 
     # lstm classifier
     fusiontype = config.get('lstm_classifier', 'fusiontype')
@@ -212,6 +223,7 @@ def main():
     s1_data_matrix = s1_data['dataMatrix'].astype('float32')
     s2_data_matrix = s2_data['dataMatrix'].astype('float32')
     s3_data_matrix = s3_data['dataMatrix'].astype('float32')
+    s4_data_matrix = s4_data['dataMatrix'].astype('float32')
 
     targets_vec = s1_data['targetsVec'].reshape((-1,))
     subjects_vec = s1_data['subjectsVec'].reshape((-1,))
@@ -221,10 +233,21 @@ def main():
     if force_align_data:
         s2_targets_vec = s2_data['targetsVec'].reshape((-1,))
         s2_vidlen_vec = s2_data['videoLengthVec'].reshape((-1,))
-        s1_new, s2_new = force_align((s1_data_matrix, targets_vec, vidlen_vec),
-                                     (s2_data_matrix, s2_targets_vec, s2_vidlen_vec))
-        s1_data_matrix, targets_vec, vidlen_vec = s1_new
-        s2_data_matrix, _, _ = s2_new
+        s3_targets_vec = s3_data['targetsVec'].reshape((-1,))
+        s3_vidlen_vec = s3_data['videoLengthVec'].reshape((-1,))
+        s4_targets_vec = s4_data['targetsVec'].reshape((-1,))
+        s4_vidlen_vec = s4_data['videoLengthVec'].reshape((-1,))
+        orig_streams = [
+            (s1_data_matrix, targets_vec, vidlen_vec),
+            (s2_data_matrix, s2_targets_vec, s2_vidlen_vec),
+            (s3_data_matrix, s3_targets_vec, s3_vidlen_vec),
+            (s4_data_matrix, s4_targets_vec, s4_vidlen_vec)
+        ]
+        new_streams = multistream_force_align(orig_streams)
+        s1_data_matrix, targets_vec, vidlen_vec = new_streams[0]
+        s2_data_matrix, _, _ = new_streams[1]
+        s3_data_matrix, _, _ = new_streams[2]
+        s4_data_matrix, _, _ = new_streams[3]
 
     if matlab_target_offset:
         targets_vec -= 1
@@ -232,6 +255,7 @@ def main():
     s1_data_matrix = presplit_dataprocessing(s1_data_matrix, vidlen_vec, config, 'stream1', imagesize=s1_imagesize)
     s2_data_matrix = presplit_dataprocessing(s2_data_matrix, vidlen_vec, config, 'stream2', imagesize=s2_imagesize)
     s3_data_matrix = presplit_dataprocessing(s3_data_matrix, vidlen_vec, config, 'stream3', imagesize=s3_imagesize)
+    s4_data_matrix = presplit_dataprocessing(s4_data_matrix, vidlen_vec, config, 'stream4', imagesize=s4_imagesize)
 
     s1_train_X, s1_train_y, s1_train_vidlens, s1_train_subjects, \
     s1_val_X, s1_val_y, s1_val_vidlens, s1_val_subjects, \
@@ -250,13 +274,21 @@ def main():
                                                                              vidlen_vec, train_subject_ids,
                                                                              val_subject_ids, test_subject_ids)
 
+    s4_train_X, s4_train_y, s4_train_vidlens, s4_train_subjects, \
+    s4_val_X, s4_val_y, s4_val_vidlens, s4_val_subjects, \
+    s4_test_X, s4_test_y, s4_test_vidlens, s4_test_subjects = split_seq_data(s4_data_matrix, targets_vec, subjects_vec,
+                                                                             vidlen_vec, train_subject_ids,
+                                                                             val_subject_ids, test_subject_ids)
+
     s1_train_X, s1_val_X, s1_test_X = postsplit_datapreprocessing(s1_train_X, s1_val_X, s1_test_X, config, 'stream1')
     s2_train_X, s2_val_X, s2_test_X = postsplit_datapreprocessing(s2_train_X, s2_val_X, s2_test_X, config, 'stream2')
     s3_train_X, s3_val_X, s3_test_X = postsplit_datapreprocessing(s3_train_X, s3_val_X, s3_test_X, config, 'stream3')
+    s4_train_X, s4_val_X, s4_test_X = postsplit_datapreprocessing(s4_train_X, s4_val_X, s4_test_X, config, 'stream4')
 
     ae1 = load_decoder(s1, s1_shape, s1_nonlinearities)
     ae2 = load_decoder(s2, s2_shape, s2_nonlinearities)
     ae3 = load_decoder(s3, s3_shape, s3_nonlinearities)
+    ae4 = load_decoder(s4, s4_shape, s4_nonlinearities)
 
     # IMPT: the encoder was trained with fortan ordered images, so to visualize
     # convert all the images to C order using reshape_images_order()
@@ -269,6 +301,7 @@ def main():
     inputs1 = T.tensor3('inputs1', dtype='float32')
     inputs2 = T.tensor3('inputs2', dtype='float32')
     inputs3 = T.tensor3('inputs3', dtype='float32')
+    inputs4 = T.tensor3('inputs4', dtype='float32')
     mask = T.matrix('mask', dtype='uint8')
     targets = T.imatrix('targets')
 
@@ -282,9 +315,11 @@ def main():
                                                               w_init_fn=weight_init_fn,
                                                               use_peepholes=use_peepholes)
     else:
-        network, l_fuse = adenet_3stream.create_model(ae1, ae2, ae3, (None, None, s1_inputdim), inputs1,
+        network, l_fuse = adenet_4stream.create_model(ae1, ae2, ae3, ae4,
+                                                      (None, None, s1_inputdim), inputs1,
                                                       (None, None, s2_inputdim), inputs2,
                                                       (None, None, s3_inputdim), inputs3,
+                                                      (None, None, s4_inputdim), inputs4,
                                                       (None, None), mask,
                                                       lstm_size, window, output_classes, fusiontype,
                                                       w_init_fn=weight_init_fn,
@@ -299,17 +334,18 @@ def main():
     updates = adam(cost, all_params, learning_rate=learning_rate)
 
     train = theano.function(
-        [inputs1, inputs2, inputs3, targets, mask, window],
+        [inputs1, inputs2, inputs3, inputs4, targets, mask, window],
         cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs1, inputs2, inputs3, targets, mask, window],
+    compute_train_cost = theano.function([inputs1, inputs2, inputs3, inputs4, targets, mask, window],
                                          cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = temporal_softmax_loss(test_predictions, targets, mask)
     compute_test_cost = theano.function(
-        [inputs1, inputs2, inputs3, targets, mask, window], test_cost, allow_input_downcast=True)
+        [inputs1, inputs2, inputs3, inputs4, targets, mask, window], test_cost, allow_input_downcast=True)
 
-    val_fn = theano.function([inputs1, inputs2, inputs3, mask, window], test_predictions, allow_input_downcast=True)
+    val_fn = theano.function([inputs1, inputs2, inputs3, inputs4, mask, window], test_predictions,
+                             allow_input_downcast=True)
 
     # We'll train the network with 10 epochs of 30 minibatches each
     print('begin training...')
@@ -333,12 +369,17 @@ def main():
     integral_lens_val = compute_integral_len(s1_val_vidlens)
     X_s2_val = gen_seq_batch_from_idx(s2_val_X, idxs_val, s1_val_vidlens, integral_lens_val, np.max(s1_val_vidlens))
     X_s3_val = gen_seq_batch_from_idx(s3_val_X, idxs_val, s1_val_vidlens, integral_lens_val, np.max(s1_val_vidlens))
+    X_s4_val = gen_seq_batch_from_idx(s4_val_X, idxs_val, s1_val_vidlens, integral_lens_val, np.max(s1_val_vidlens))
 
     # we use the test set to check final classification rate
     X_s1_test, y_test, mask_test, idxs_test = next(test_datagen)
     integral_lens_test = compute_integral_len(s1_test_vidlens)
-    X_s2_test = gen_seq_batch_from_idx(s2_test_X, idxs_test, s1_test_vidlens, integral_lens_test, np.max(s1_test_vidlens))
-    X_s3_test = gen_seq_batch_from_idx(s3_test_X, idxs_test, s1_test_vidlens, integral_lens_test, np.max(s1_test_vidlens))
+    X_s2_test = gen_seq_batch_from_idx(s2_test_X, idxs_test, s1_test_vidlens, integral_lens_test,
+                                       np.max(s1_test_vidlens))
+    X_s3_test = gen_seq_batch_from_idx(s3_test_X, idxs_test, s1_test_vidlens, integral_lens_test,
+                                       np.max(s1_test_vidlens))
+    X_s4_test = gen_seq_batch_from_idx(s4_test_X, idxs_test, s1_test_vidlens, integral_lens_test,
+                                       np.max(s1_test_vidlens))
 
     # reshape the targets for validation
     y_val_evaluate = y_val
@@ -352,17 +393,19 @@ def main():
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
             X_s2 = gen_seq_batch_from_idx(s2_train_X, batch_idxs,
-                                            s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
+                                          s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
             X_s3 = gen_seq_batch_from_idx(s3_train_X, batch_idxs,
+                                          s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
+            X_s4 = gen_seq_batch_from_idx(s4_train_X, batch_idxs,
                                           s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
             print_str = 'Epoch {} batch {}/{}: {} examples using adam with learning rate = {}'.format(
                 epoch + 1, i + 1, epochsize, len(X_s1), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
-            train(X_s1, X_s2, X_s3, y, m, windowsize)
+            train(X_s1, X_s2, X_s3, X_s4, y, m, windowsize)
             print('\r', end='')
-        cost = compute_train_cost(X_s1, X_s2, X_s3, y, m, windowsize)
-        val_cost = compute_test_cost(X_s1_val, X_s2_val, X_s3_val, y_val, mask_val, windowsize)
+        cost = compute_train_cost(X_s1, X_s2, X_s3, X_s4, y, m, windowsize)
+        val_cost = compute_test_cost(X_s1_val, X_s2_val, X_s3_val, X_s4_val, y_val, mask_val, windowsize)
         cost_train.append(cost)
         cost_val.append(val_cost)
         train_strip[epoch % STRIP_SIZE] = cost
@@ -372,13 +415,15 @@ def main():
         pk = 1000 * (np.sum(train_strip) / (STRIP_SIZE * np.min(train_strip)) - 1)
         pq = gl / pk
 
-        cr, val_conf = evaluate_model2(X_s1_val, X_s2_val, X_s3_val, y_val_evaluate, mask_val, windowsize, val_fn)
+        cr, val_conf = evaluate_model2(X_s1_val, X_s2_val, X_s3_val, X_s4_val,
+                                       y_val_evaluate, mask_val, windowsize, val_fn)
         class_rate.append(cr)
 
         if val_cost < best_val:
             best_val = val_cost
             best_cr = cr
-            test_cr, test_conf = evaluate_model2(X_s1_test, X_s2_test, X_s3_test, y_test, mask_test, windowsize, val_fn)
+            test_cr, test_conf = evaluate_model2(X_s1_test, X_s2_test, X_s3_test, X_s4_test,
+                                                 y_test, mask_test, windowsize, val_fn)
             print("Epoch {} train cost = {}, val cost = {}, "
                   "GL loss = {:.3f}, GQ = {:.3f}, CR = {:.3f}, Test CR= {:.3f} ({:.1f}sec)"
                   .format(epoch + 1, cost_train[-1], cost_val[-1], gl, pq, cr, test_cr, time.time() - time_start))
