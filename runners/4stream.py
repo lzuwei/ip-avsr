@@ -7,6 +7,7 @@ import ConfigParser
 import argparse
 
 import matplotlib
+from theano.compile.nanguardmode import NanGuardMode
 
 matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
@@ -44,6 +45,7 @@ def load_decoder(path, shapes, nonlinearities):
 
 def configure_theano():
     theano.config.floatX = 'float32'
+    # theano.config.optimizer = 'fast_compile'
     sys.setrecursionlimit(10000)
 
 
@@ -148,6 +150,7 @@ def main():
     print(config.items('stream1'))
     print(config.items('stream2'))
     print(config.items('stream3'))
+    print(config.items('stream4'))
     print(config.items('lstm_classifier'))
     print(config.items('training'))
 
@@ -229,6 +232,14 @@ def main():
     subjects_vec = s1_data['subjectsVec'].reshape((-1,))
     vidlen_vec = s1_data['videoLengthVec'].reshape((-1,))
 
+    if matlab_target_offset:
+        targets_vec -= 1
+
+    s1_data_matrix = presplit_dataprocessing(s1_data_matrix, vidlen_vec, config, 'stream1', imagesize=s1_imagesize)
+    s2_data_matrix = presplit_dataprocessing(s2_data_matrix, vidlen_vec, config, 'stream2', imagesize=s2_imagesize)
+    s3_data_matrix = presplit_dataprocessing(s3_data_matrix, vidlen_vec, config, 'stream3', imagesize=s3_imagesize)
+    s4_data_matrix = presplit_dataprocessing(s4_data_matrix, vidlen_vec, config, 'stream4', imagesize=s4_imagesize)
+
     force_align_data = config.getboolean('stream1', 'force_align_data')
     if force_align_data:
         s2_targets_vec = s2_data['targetsVec'].reshape((-1,))
@@ -248,14 +259,6 @@ def main():
         s2_data_matrix, _, _ = new_streams[1]
         s3_data_matrix, _, _ = new_streams[2]
         s4_data_matrix, _, _ = new_streams[3]
-
-    if matlab_target_offset:
-        targets_vec -= 1
-
-    s1_data_matrix = presplit_dataprocessing(s1_data_matrix, vidlen_vec, config, 'stream1', imagesize=s1_imagesize)
-    s2_data_matrix = presplit_dataprocessing(s2_data_matrix, vidlen_vec, config, 'stream2', imagesize=s2_imagesize)
-    s3_data_matrix = presplit_dataprocessing(s3_data_matrix, vidlen_vec, config, 'stream3', imagesize=s3_imagesize)
-    s4_data_matrix = presplit_dataprocessing(s4_data_matrix, vidlen_vec, config, 'stream4', imagesize=s4_imagesize)
 
     s1_train_X, s1_train_y, s1_train_vidlens, s1_train_subjects, \
     s1_val_X, s1_val_y, s1_val_vidlens, s1_val_subjects, \

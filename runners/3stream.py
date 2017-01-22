@@ -218,13 +218,6 @@ def main():
     vidlen_vec = s1_data['videoLengthVec'].reshape((-1,))
 
     force_align_data = config.getboolean('stream1', 'force_align_data')
-    if force_align_data:
-        s2_targets_vec = s2_data['targetsVec'].reshape((-1,))
-        s2_vidlen_vec = s2_data['videoLengthVec'].reshape((-1,))
-        s1_new, s2_new = force_align((s1_data_matrix, targets_vec, vidlen_vec),
-                                     (s2_data_matrix, s2_targets_vec, s2_vidlen_vec))
-        s1_data_matrix, targets_vec, vidlen_vec = s1_new
-        s2_data_matrix, _, _ = s2_new
 
     if matlab_target_offset:
         targets_vec -= 1
@@ -232,6 +225,21 @@ def main():
     s1_data_matrix = presplit_dataprocessing(s1_data_matrix, vidlen_vec, config, 'stream1', imagesize=s1_imagesize)
     s2_data_matrix = presplit_dataprocessing(s2_data_matrix, vidlen_vec, config, 'stream2', imagesize=s2_imagesize)
     s3_data_matrix = presplit_dataprocessing(s3_data_matrix, vidlen_vec, config, 'stream3', imagesize=s3_imagesize)
+
+    if force_align_data:
+        s2_targets_vec = s2_data['targetsVec'].reshape((-1,))
+        s2_vidlen_vec = s2_data['videoLengthVec'].reshape((-1,))
+        s3_targets_vec = s3_data['targetsVec'].reshape((-1,))
+        s3_vidlen_vec = s3_data['videoLengthVec'].reshape((-1,))
+        orig_streams = [
+            (s1_data_matrix, targets_vec, vidlen_vec),
+            (s2_data_matrix, s2_targets_vec, s2_vidlen_vec),
+            (s3_data_matrix, s3_targets_vec, s3_vidlen_vec),
+        ]
+        new_streams = multistream_force_align(orig_streams)
+        s1_data_matrix, targets_vec, vidlen_vec = new_streams[0]
+        s2_data_matrix, _, _ = new_streams[1]
+        s3_data_matrix, _, _ = new_streams[2]
 
     s1_train_X, s1_train_y, s1_train_vidlens, s1_train_subjects, \
     s1_val_X, s1_val_y, s1_val_vidlens, s1_val_subjects, \
