@@ -203,7 +203,5 @@ if __name__ == '__main__':
         workers.append(mp.Process(target=process_video_worker, args=(queue, options['model'], input_dir, output_dir)))
     for p in workers:
         p.start()
-    for p in workers:
-        p.join()
     queue.join()
     print('All Done!')
