@@ -81,12 +81,16 @@ def fill_row(outwriter, frame_no, row):
 
 def process_video_worker(video_queue, face_model, input_dir, output_dir):
     image_fitter = ImageFitter(face_model)
-    while not video_queue.empty():
-        video = video_queue.get_nowait()
+    while True:
+        video = video_queue.get()
+        if video is None:
+            print('[{}] Done...'.format(os.getpid()))
+            video_queue.task_done()
+            break
         relative_path = video[len(input_dir) + 1:]
         landmarkfile = os.path.join(output_dir, os.path.splitext(relative_path)[0] + '.csv')
         process_video(video, landmarkfile, image_fitter)
-    print('[{}] Done...'.format(os.getpid()))
+        video_queue.task_done()
 
 
 def process_video(file, dest, fitter):
@@ -157,6 +161,18 @@ def parse_options():
     return options
 
 
+def add_tasks(queue, task_list):
+    for t in task_list:
+        queue.put(t)
+    return queue
+
+
+def add_poison_pills(queue, no_pills):
+    for _ in range(no_pills):
+        queue.put(None)
+    return queue
+
+
 if __name__ == '__main__':
     options = parse_options()
 
@@ -172,16 +188,16 @@ if __name__ == '__main__':
     videofiles = find_all_videos(options['input_dir'], relpath=False)
     videofiles.sort()
     print('Found {} video(s)...'.format(len(videofiles)))
-    queue = mp.Queue()
-    for f in videofiles:
-        queue.put(f)
-    input_dir = os.path.abspath(options['input_dir'])
-    output_dir = os.path.abspath(options['output_dir'])
-    workers = []
     if 'workers' in options:
         no_workers = options['workers']
     else:
         no_workers = mp.cpu_count()
+    queue = mp.JoinableQueue()
+    queue = add_tasks(queue, videofiles)
+    queue = add_poison_pills(queue, no_workers)
+    input_dir = os.path.abspath(options['input_dir'])
+    output_dir = os.path.abspath(options['output_dir'])
+    workers = []
     print('Using {} workers...'.format(no_workers))
     for i in range(no_workers):
         workers.append(mp.Process(target=process_video_worker, args=(queue, options['model'], input_dir, output_dir)))
@@ -189,4 +205,5 @@ if __name__ == '__main__':
         p.start()
     for p in workers:
         p.join()
+    queue.join()
     print('All Done!')
