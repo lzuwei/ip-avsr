@@ -115,8 +115,8 @@ def process_video(file, dest, fitter):
             try:
                 for i, frame in enumerate(print_progress(frames)):
                     if 'final_shape' not in frame.landmarks:
-                        warnings.warn('no faces detected in the frame {}, '
-                                      'initializing landmarks to -1s...'.format(i))
+                        warnings.warn('no faces detected in the frame {}, '.format(i) +
+                                      'initializing landmarks to -1s...')
                         # dlib does not fitting from previous initial shape so
                         # leave entire row as -1s
                         # initial_shape = frames[i - 1].landmarks['final_shape'].lms
