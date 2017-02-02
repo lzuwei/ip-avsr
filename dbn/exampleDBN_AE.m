@@ -32,7 +32,7 @@ end
 % parameters used for visualisation of first layer weights
 visParams.noExamplesPerSubplot = 50; % number of images to show per row
 visParams.noSubplots = floor(hiddenLayers(1) / visParams.noExamplesPerSubplot);
-visParams.col = 50; %44;% number columns of image
+visParams.col = 40; %44;% number columns of image
 visParams.row = 30; %26 number rows of image
 
 

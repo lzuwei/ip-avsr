@@ -12,7 +12,7 @@ import theano.tensor as T
 import theano
 
 import matplotlib
-matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
+#matplotlib.use('Agg')  # Change matplotlib backend, in case we have no X server running..
 
 import lasagne as las
 from utils.preprocessing import *
@@ -23,11 +23,11 @@ from utils.io import *
 from utils.draw_net import *
 from utils.regularization import early_stop, early_stop2
 from custom.objectives import temporal_softmax_loss
+from custom.nonlinearities import select_nonlinearity
 from modelzoo import adenet_v2, adenet_v2_3
 
 import numpy as np
-from lasagne.layers import InputLayer, DenseLayer, DropoutLayer, LSTMLayer, Gate, ElemwiseSumLayer, SliceLayer
-from lasagne.layers import ReshapeLayer, DimshuffleLayer, ConcatLayer, BatchNormLayer, batch_norm
+from lasagne.layers import InputLayer, DenseLayer
 from lasagne.nonlinearities import tanh, linear, sigmoid, rectify, leaky_rectify
 from lasagne.updates import nesterov_momentum, adadelta, sgd, norm_constraint
 from lasagne.objectives import squared_error
@@ -37,6 +37,18 @@ from nolearn.lasagne import NeuralNet
 def configure_theano():
     theano.config.floatX = 'float32'
     sys.setrecursionlimit(10000)
+
+
+def load_decoder(path, shapes, nonlinearities):
+    nn = sio.loadmat(path)
+    weights = []
+    biases = []
+    shapes = [int(s) for s in shapes.split(',')]
+    nonlinearities = [select_nonlinearity(nonlinearity) for nonlinearity in nonlinearities.split(',')]
+    for i in range(len(shapes)):
+        weights.append(nn['w{}'.format(i+1)].astype('float32'))
+        biases.append(nn['b{}'.format(i+1)][0].astype('float32'))
+    return weights, biases, shapes, nonlinearities
 
 
 def load_dbn(path='models/avletters_ae.mat'):
@@ -66,13 +78,13 @@ def load_dbn(path='models/avletters_ae.mat'):
 
     layers = [
         (InputLayer, {'name': 'input', 'shape': (None, 1200)}),
-        (DenseLayer, {'name': 'l1', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w1, 'b': b1}),
-        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w2, 'b': b2}),
-        (DenseLayer, {'name': 'l3', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w3, 'b': b3}),
+        (DenseLayer, {'name': 'l1', 'num_units': 2000, 'nonlinearity': rectify, 'W': w1, 'b': b1}),
+        (DenseLayer, {'name': 'l2', 'num_units': 1000, 'nonlinearity': rectify, 'W': w2, 'b': b2}),
+        (DenseLayer, {'name': 'l3', 'num_units': 500, 'nonlinearity': rectify, 'W': w3, 'b': b3}),
         (DenseLayer, {'name': 'l4', 'num_units': 50, 'nonlinearity': linear, 'W': w4, 'b': b4}),
-        (DenseLayer, {'name': 'l5', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w5, 'b': b5}),
-        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w6, 'b': b6}),
-        (DenseLayer, {'name': 'l7', 'num_units': 1000, 'nonlinearity': sigmoid, 'W': w7, 'b': b7}),
+        (DenseLayer, {'name': 'l5', 'num_units': 500, 'nonlinearity': rectify, 'W': w5, 'b': b5}),
+        (DenseLayer, {'name': 'l6', 'num_units': 1000, 'nonlinearity': rectify, 'W': w6, 'b': b6}),
+        (DenseLayer, {'name': 'l7', 'num_units': 2000, 'nonlinearity': rectify, 'W': w7, 'b': b7}),
         (DenseLayer, {'name': 'output', 'num_units': 1200, 'nonlinearity': linear, 'W': w8, 'b': b8}),
     ]
 
@@ -333,10 +345,12 @@ def main():
     # create the necessary variable mappings
     data_matrix = data['dataMatrix'].astype('float32')
     data_matrix_len = data_matrix.shape[0]
-    targets_vec = data['targetsVec']
-    vid_len_vec = data['videoLengthVec']
-    iter_vec = data['iterVec']
+    targets_vec = data['targetsVec'].reshape((-1,))
+    vid_len_vec = data['videoLengthVec'].reshape((-1,))
+    iter_vec = data['iterVec'].reshape((-1,))
     dct_feats = dct_data['dctFeatures'].astype('float32')
+
+    targets_vec -= 1
 
     print('samplewise normalize images...')
     data_matrix = normalize_input(data_matrix, True)
@@ -352,11 +366,9 @@ def main():
 
     # split the data
     train_data = data_matrix[indexes == True]
-    train_targets = targets_vec[indexes == True]
-    train_targets = train_targets.reshape((len(train_targets),))
+    train_targets = targets_vec[indexes == True].reshape((-1,))
     test_data = data_matrix[indexes == False]
-    test_targets = targets_vec[indexes == False]
-    test_targets = test_targets.reshape((len(test_targets),))
+    test_targets = targets_vec[indexes == False].reshape((-1,))
 
     # split the dct features
     train_dct = dct_feats[indexes == True].astype(np.float32)
@@ -381,11 +393,13 @@ def main():
     load = True
     if load:
         print('loading pre-trained encoding layers...')
-        dbn = pickle.load(open(ae_finetuned, 'rb'))
+        dbn = load_dbn(ae_pretrained)
+        #dbn = pickle.load(open(ae_finetuned, 'rb'))
         dbn.initialize()
-        # recon = dbn.predict(test_data)
-        # visualize_reconstruction(test_data[300:364], recon[300:364])
-        # exit()
+        #dbn = load_decoder(ae_pretrained, '2000,1000,500,50', 'rectify,rectify,rectify,linear')
+        recon = dbn.predict(test_data)
+        visualize_reconstruction(test_data[300:364], recon[300:364])
+        exit()
 
     load_convae = False
     if load_convae:
@@ -552,7 +566,7 @@ def main():
         print("final scaling params: {}".format(adascale_param))
     print('confusion matrix: ')
     if not options['no_plot']:
-        plot_confusion_matrix(best_conf, letters, fmt='latex')
+        plot_confusion_matrix(best_conf, letters, fmt='pipe')
         plot_validation_cost(cost_train, cost_val, class_rate, 'e2e_valid_cost')
 
     if 'write_results' in options:

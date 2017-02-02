@@ -64,7 +64,8 @@ def create_split_index(data_len, vid_len_vec, iter_vec):
     # populate the iterVec to iteration matrix of all the frames
     start = 0
     for vid in range(len(iter_vec)):
-        end = start + vid_len_vec[vid][0]
+        # end = start + vid_len_vec[vid][0]
+        end = start + vid_len_vec[vid]
         if iter_vec[vid] == 1 or iter_vec[vid] == 2:
             indexes[start:end] = True
         else:
@@ -78,9 +79,9 @@ def split_videolen(videolen_vec, iter_vec):
     test_vidlen = []
     for idx, iter in enumerate(iter_vec):
         if iter == 1 or iter == 2:
-            train_vidlen.append(videolen_vec[idx][0])
+            train_vidlen.append(videolen_vec[idx])
         else:
-            test_vidlen.append(videolen_vec[idx][0])
+            test_vidlen.append(videolen_vec[idx])
     return train_vidlen, test_vidlen
 
 
