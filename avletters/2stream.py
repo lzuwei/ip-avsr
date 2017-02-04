@@ -175,6 +175,7 @@ def main():
     output_classnames = config.get('lstm_classifier', 'output_classnames').split(',')
     lstm_size = config.getint('lstm_classifier', 'lstm_size')
     matlab_target_offset = config.getboolean('lstm_classifier', 'matlab_target_offset')
+    use_blstm_substream = True if config.getboolean('lstm_classifier', 'use_blstm_substream') else False
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
@@ -269,7 +270,7 @@ def main():
                                                                      (None, None, s2_inputdim), inputs2,
                                                                      (None, None), mask,
                                                                      lstm_size, window, output_classes, fusiontype,
-                                                                     weight_init_fn, use_peepholes, True)
+                                                                     weight_init_fn, use_peepholes, use_blstm_substream)
         else:
             network, l_fuse = adenet_v2_2.create_model(ae1, ae2, (None, None, s1_inputdim), inputs1,
                                                        (None, None), mask,
