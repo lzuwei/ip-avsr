@@ -24,7 +24,7 @@ import lasagne as las
 import numpy as np
 from lasagne.updates import adam
 
-from modelzoo import adenet_v2_2
+from modelzoo import adenet_v2_2, adenet_2stream
 from utils.plotting_utils import print_network
 
 
@@ -155,6 +155,7 @@ def main():
     s1_inputdim = config.getint('stream1', 'input_dimensions')
     s1_shape = config.get('stream1', 'shape')
     s1_nonlinearities = config.get('stream1', 'nonlinearities')
+    s1_lstm = sio.loadmat(config.get('stream1', 'lstm_model')) if config.has_option('stream1', 'lstm_model') else None
 
     # stream 2
     s2_data = load_mat_file(config.get('stream2', 'data'))
@@ -163,6 +164,7 @@ def main():
     s2_inputdim = config.getint('stream2', 'input_dimensions')
     s2_shape = config.get('stream2', 'shape')
     s2_nonlinearities = config.get('stream2', 'nonlinearities')
+    s2_lstm = sio.loadmat(config.get('stream2', 'lstm_model')) if config.has_option('stream2', 'lstm_model') else None
 
     # lstm classifier
     fusiontype = config.get('lstm_classifier', 'fusiontype')
@@ -251,12 +253,21 @@ def main():
     targets = T.imatrix('targets')
 
     print('constructing end to end model...')
-    network, l_fuse = adenet_v2_2.create_model(ae1, ae2, (None, None, s1_inputdim), inputs1,
-                                               (None, None), mask,
-                                               (None, None, s2_inputdim), inputs2,
-                                               lstm_size, window, output_classes, fusiontype,
-                                               w_init_fn=weight_init_fn,
-                                               use_peepholes=use_peepholes)
+    if s1_lstm and s2_lstm:
+        network, l_fust = adenet_2stream.create_pretrained_model(ae1, s1_lstm,
+                                                                 ae2, s2_lstm,
+                                                                 (None, None, s1_inputdim), inputs1,
+                                                                 (None, None, s2_inputdim), inputs2,
+                                                                 (None, None), mask,
+                                                                 lstm_size, window, output_classes, fusiontype,
+                                                                 weight_init_fn, use_peepholes)
+    else:
+        network, l_fuse = adenet_v2_2.create_model(ae1, ae2, (None, None, s1_inputdim), inputs1,
+                                                   (None, None), mask,
+                                                   (None, None, s2_inputdim), inputs2,
+                                                   lstm_size, window, output_classes, fusiontype,
+                                                   w_init_fn=weight_init_fn,
+                                                   use_peepholes=use_peepholes)
 
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')

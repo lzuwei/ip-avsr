@@ -107,7 +107,7 @@ def load_saved_model(model_path, stream_params, input_shape, input_var, mask_sha
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
 
-    l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'bstm1',
+    l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'blstm1',
                                        use_peepholes)
 
     # We'll combine the forward and backward layer output by summing.
@@ -145,5 +145,46 @@ def extract_encoder_weights(network, names, saveas):
                 bias = l.b.container.data
                 d[saveas[i][0]] = weight
                 d[saveas[i][1]] = bias
+                break
+    return d
+
+
+def extract_lstm_weights(network, names, saveas):
+    """
+    extract lstm weights of a given model
+    :param network: trained model
+    :param names: names of lstm layer weights to extract
+    :param saveas: names to save to in a list with prefix [prefix1, prefix2]
+    :return: dictionary containing weights and biases of the lstm layers
+    """
+    layers = las.layers.get_all_layers(network)
+    d = {}
+    for i, name in enumerate(names):
+        for l in layers:
+            if l.name == name:
+                w_hid_to_cell = l.W_hid_to_cell.container.data
+                w_hid_to_forgetgate = l.W_hid_to_forgetgate.container.data
+                w_hid_to_ingate = l.W_hid_to_ingate.container.data
+                w_hid_to_outgate = l.W_hid_to_outgate.container.data
+                w_in_to_cell = l.W_in_to_cell.container.data
+                w_in_to_forgetgate = l.W_in_to_forgetgate.container.data
+                w_in_to_ingate = l.W_in_to_ingate.container.data
+                w_in_to_outgate = l.W_in_to_outgate.container.data
+                b_cell = l.b_cell.container.data
+                b_forgetgate = l.b_forgetgate.container.data
+                b_ingate = l.b_ingate.container.data
+                b_outgate = l.b_outgate.container.data
+                d['{}_w_hid_to_cell'.format(saveas[i])] = w_hid_to_cell
+                d['{}_w_hid_to_forgetgate'.format(saveas[i])] = w_hid_to_forgetgate
+                d['{}_w_hid_to_ingate'.format(saveas[i])] = w_hid_to_ingate
+                d['{}_w_hid_to_outgate'.format(saveas[i])] = w_hid_to_outgate
+                d['{}_w_in_to_cell'.format(saveas[i])] = w_in_to_cell
+                d['{}_w_in_to_forgetgate'.format(saveas[i])] = w_in_to_forgetgate
+                d['{}_w_in_to_ingate'.format(saveas[i])] = w_in_to_ingate
+                d['{}_w_in_to_outgate'.format(saveas[i])] = w_in_to_outgate
+                d['{}_b_cell'.format(saveas[i])] = b_cell
+                d['{}_b_forgetgate'.format(saveas[i])] = b_forgetgate
+                d['{}_b_ingate'.format(saveas[i])] = b_ingate
+                d['{}_b_outgate'.format(saveas[i])] = b_outgate
                 break
     return d

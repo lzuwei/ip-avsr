@@ -17,6 +17,8 @@ class TestModelIO(unittest.TestCase):
                                                           250, window, 10)
         d = deltanet_majority_vote.extract_encoder_weights(network, ['fc1', 'fc2', 'fc3', 'bottleneck'],
                                                            [('w1', 'b1'), ('w2', 'b2'), ('w3', 'b3'), ('w4', 'b4')])
+        b = deltanet_majority_vote.extract_lstm_weights(network, ['f_blstm1', 'b_blstm1'],
+                                                        ['flstm', 'blstm'])
         expected_keys = ['w1', 'w2', 'w3', 'w4', 'b1', 'b2', 'b3', 'b4']
         keys = d.keys()
         for k in keys:

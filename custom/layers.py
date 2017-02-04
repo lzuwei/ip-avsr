@@ -25,6 +25,33 @@ def create_lstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramete
     return l_lstm
 
 
+def create_pretrained_lstm(lstm_weights, prefix, l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters,
+                           name, use_peepholes=False, backwards=False):
+    l_lstm = LSTMLayer(
+        l_incoming, hidden_units, peepholes=use_peepholes,
+        # We need to specify a separate input for masks
+        mask_input=l_mask,
+        # Here, we supply the gate parameters for each gate
+        ingate=gate_parameters, forgetgate=gate_parameters,
+        cell=cell_parameters, outgate=gate_parameters,
+        # We'll learn the initialization and use gradient clipping
+        learn_init=True, grad_clipping=5., name=name, backwards=backwards)
+
+    l_lstm.W_hid_to_cell.container.data = lstm_weights['{}_w_hid_to_cell'.format(prefix)].astype('float32')
+    l_lstm.W_hid_to_forgetgate.container.data = lstm_weights['{}_w_hid_to_forgetgate'.format(prefix)].astype('float32')
+    l_lstm.W_hid_to_ingate.container.data = lstm_weights['{}_w_hid_to_ingate'.format(prefix)].astype('float32')
+    l_lstm.W_hid_to_outgate.container.data = lstm_weights['{}_w_hid_to_outgate'.format(prefix)].astype('float32')
+    l_lstm.W_in_to_cell.container.data = lstm_weights['{}_w_in_to_cell'.format(prefix)].astype('float32')
+    l_lstm.W_in_to_forgetgate.container.data = lstm_weights['{}_w_in_to_forgetgate'.format(prefix)].astype('float32')
+    l_lstm.W_in_to_ingate.container.data = lstm_weights['{}_w_in_to_ingate'.format(prefix)].astype('float32')
+    l_lstm.W_in_to_outgate.container.data = lstm_weights['{}_w_in_to_outgate'.format(prefix)].astype('float32')
+    l_lstm.b_cell.container.data = lstm_weights['{}_b_cell'.format(prefix)].astype('float32').reshape((-1,))
+    l_lstm.b_forgetgate.container.data = lstm_weights['{}_b_forgetgate'.format(prefix)].astype('float32').reshape((-1,))
+    l_lstm.b_ingate.container.data = lstm_weights['{}_b_ingate'.format(prefix)].astype('float32').reshape((-1,))
+    l_lstm.b_outgate.container.data = lstm_weights['{}_b_outgate'.format(prefix)].astype('float32').reshape((-1,))
+    return l_lstm
+
+
 def create_blstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_parameters, name, use_peepholes=False):
 
     if cell_parameters is None:
