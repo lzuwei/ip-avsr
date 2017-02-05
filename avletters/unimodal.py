@@ -152,6 +152,7 @@ def main():
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('lstm_classifier', 'weight_init')
     use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('lstm_classifier',
                                                                                                   'use_peepholes')
+    use_blstm = True if config.has_option('lstm_classifier', 'use_blstm') else False
     windowsize = config.getint('lstm_classifier', 'windowsize')
 
     # capture training parameters
@@ -207,7 +208,7 @@ def main():
     if not has_encoder:
         network = deltanet_v1.create_model((None, None, stream1_dim), inputs,
                                            (None, None), mask, window,
-                                           lstm_size, output_classes, weight_init_fn, use_peepholes)
+                                           lstm_size, output_classes, weight_init_fn, use_peepholes, use_blstm)
     else:
         ae1 = load_decoder(stream1, stream1_shape, stream1_nonlinearities)
         network = deltanet_majority_vote.create_model(ae1, (None, None, stream1_dim), inputs,

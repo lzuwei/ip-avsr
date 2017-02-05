@@ -158,6 +158,8 @@ def main():
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('lstm_classifier', 'weight_init')
     use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('lstm_classifier',
                                                                                                   'use_peepholes')
+    use_blstm = True if config.has_option('lstm_classifier', 'use_blstm') else False
+
     windowsize = config.getint('lstm_classifier', 'windowsize')
     output_classes = config.getint('lstm_classifier', 'output_classes')
     output_classnames = config.get('lstm_classifier', 'output_classnames').split(',')
@@ -227,11 +229,12 @@ def main():
         ae1 = load_decoder(s1, s1_shape, s1_nonlinearities)
         network = deltanet_majority_vote.create_model(ae1, (None, None, s1_inputdim), inputs1,
                                                       (None, None), mask,
-                                                      lstm_size, window, output_classes, weight_init_fn, use_peepholes)
+                                                      lstm_size, window, output_classes, weight_init_fn,
+                                                      use_peepholes, use_blstm)
     else:
         network = deltanet_v1.create_model((None, None, s1_inputdim), inputs1,
                                            (None, None), mask, window,
-                                           lstm_size, output_classes, weight_init_fn, use_peepholes)
+                                           lstm_size, output_classes, weight_init_fn, use_peepholes, use_blstm)
     print_network(network)
     # draw_to_file(las.layers.get_all_layers(network), 'network.png')
     print('compiling model...')
@@ -239,7 +242,6 @@ def main():
     all_params = las.layers.get_all_params(network, trainable=True)
     cost = temporal_softmax_loss(predictions, targets, mask)
     updates = adam(cost, all_params, learning_rate=learning_rate)
-    #updates = las.updates.adadelta(cost, all_params, learning_rate)
 
     train = theano.function(
         [inputs1, targets, mask, window],

@@ -6,14 +6,14 @@ from lasagne.layers import Gate
 from lasagne.nonlinearities import tanh
 from lasagne.init import GlorotUniform
 
-from custom.layers import DeltaLayer, create_blstm
+from custom.layers import DeltaLayer, create_blstm, create_lstm
 from modelzoo.pretrained_encoder import create_pretrained_encoder, create_encoder
 from utils.io import load_model_params
 
 
 def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
                  lstm_size=250, win=T.iscalar('theta)'),
-                 output_classes=26, w_init_fn=GlorotUniform, use_peepholes=False):
+                 output_classes=26, w_init_fn=GlorotUniform, use_peepholes=False, use_blstm=True):
 
     weights, biases, shapes, nonlinearities = dbn
 
@@ -42,15 +42,18 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
 
-    l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'bstm1',
-                                       use_peepholes)
+    if use_blstm:
+        l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'blstm1',
+                                           use_peepholes)
 
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
-
-    # reshape, flatten to 2 dimensions to run softmax on all timesteps
-    l_reshape3 = ReshapeLayer(l_sum1, (-1, lstm_size), name='reshape3')
+        # We'll combine the forward and backward layer output by summing.
+        # Merge layers take in lists of layers to merge as input.
+        l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
+        # reshape, flatten to 2 dimensions to run softmax on all timesteps
+        l_reshape3 = ReshapeLayer(l_sum1, (-1, lstm_size), name='reshape3')
+    else:
+        l_lstm = create_lstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm', use_peepholes)
+        l_reshape3 = ReshapeLayer(l_lstm, (-1, lstm_size), name='reshape3')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,
@@ -65,7 +68,7 @@ def create_model(dbn, input_shape, input_var, mask_shape, mask_var,
 
 def load_saved_model(model_path, stream_params, input_shape, input_var, mask_shape, mask_var,
                      lstm_size=250, win=T.iscalar('theta)'),
-                     output_classes=26, w_init_fn=GlorotUniform(), use_peepholes=False):
+                     output_classes=26, w_init_fn=GlorotUniform(), use_peepholes=False, use_blstm=True):
     """
     loads a saved model
     :param model_path: path to model parameters
@@ -107,15 +110,18 @@ def load_saved_model(model_path, stream_params, input_shape, input_var, mask_sha
     l_reshape2 = ReshapeLayer(l_encoder, (symbolic_batchsize, symbolic_seqlen, encoder_len), name='reshape2')
     l_delta = DeltaLayer(l_reshape2, win, name='delta')
 
-    l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'blstm1',
-                                       use_peepholes)
+    if use_blstm:
+        l_lstm, l_lstm_back = create_blstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm',
+                                           use_peepholes)
 
-    # We'll combine the forward and backward layer output by summing.
-    # Merge layers take in lists of layers to merge as input.
-    l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
-
-    # reshape, flatten to 2 dimensions to run softmax on all timesteps
-    l_reshape3 = ReshapeLayer(l_sum1, (-1, lstm_size), name='reshape3')
+        # We'll combine the forward and backward layer output by summing.
+        # Merge layers take in lists of layers to merge as input.
+        l_sum1 = ElemwiseSumLayer([l_lstm, l_lstm_back], name='sum1')
+        # reshape, flatten to 2 dimensions to run softmax on all timesteps
+        l_reshape3 = ReshapeLayer(l_sum1, (-1, lstm_size), name='reshape3')
+    else:
+        l_lstm = create_lstm(l_delta, l_mask, lstm_size, cell_parameters, gate_parameters, 'lstm', use_peepholes)
+        l_reshape3 = ReshapeLayer(l_lstm, (-1, lstm_size), name='reshape3')
 
     # Now, we can apply feed-forward layers as usual.
     # We want the network to predict a classification for the sequence,

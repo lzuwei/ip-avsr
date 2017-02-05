@@ -14,7 +14,7 @@ def create_lstm(l_incoming, l_mask, hidden_units, cell_parameters, gate_paramete
         gate_parameters = Gate()
 
     l_lstm = LSTMLayer(
-        l_incoming, hidden_units, use_peepholes=use_peepholes,
+        l_incoming, hidden_units, peepholes=use_peepholes,
         # We need to specify a separate input for masks
         mask_input=l_mask,
         # Here, we supply the gate parameters for each gate

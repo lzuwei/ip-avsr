@@ -24,7 +24,7 @@ import lasagne as las
 import numpy as np
 from lasagne.updates import adam
 
-from modelzoo import adenet_v2_2, adenet_v2, adenet_3stream
+from modelzoo import adenet_3stream
 from utils.plotting_utils import print_network
 
 
@@ -156,6 +156,7 @@ def main():
     s1_inputdim = config.getint('stream1', 'input_dimensions')
     s1_shape = config.get('stream1', 'shape')
     s1_nonlinearities = config.get('stream1', 'nonlinearities')
+    s1_lstm = sio.loadmat(config.get('stream1', 'lstm_model')) if config.has_option('stream1', 'lstm_model') else None
 
     # stream 2
     s2_data = load_mat_file(config.get('stream2', 'data'))
@@ -164,6 +165,7 @@ def main():
     s2 = config.get('stream2', 'model')
     s2_shape = config.get('stream2', 'shape')
     s2_nonlinearities = config.get('stream2', 'nonlinearities')
+    s2_lstm = sio.loadmat(config.get('stream2', 'lstm_model')) if config.has_option('stream2', 'lstm_model') else None
 
     # stream 2
     s3_data = load_mat_file(config.get('stream3', 'data'))
@@ -172,8 +174,9 @@ def main():
     s3 = config.get('stream3', 'model')
     s3_shape = config.get('stream3', 'shape')
     s3_nonlinearities = config.get('stream3', 'nonlinearities')
-    # lstm classifier
+    s3_lstm = sio.loadmat(config.get('stream3', 'lstm_model')) if config.has_option('stream3', 'lstm_model') else None
 
+    # lstm classifier
     fusiontype = config.get('lstm_classifier', 'fusiontype')
     weight_init = options['weight_init'] if 'weight_init' in options else config.get('lstm_classifier', 'weight_init')
     use_peepholes = options['use_peepholes'] if 'use_peepholes' in options else config.getboolean('lstm_classifier',
@@ -183,6 +186,7 @@ def main():
     output_classnames = config.get('lstm_classifier', 'output_classnames').split(',')
     lstm_size = config.getint('lstm_classifier', 'lstm_size')
     matlab_target_offset = config.getboolean('lstm_classifier', 'matlab_target_offset')
+    use_blstm_substream = config.getboolean('lstm_classifier', 'use_blstm_substream')
 
     # capture training parameters
     validation_window = int(options['validation_window']) \
@@ -203,16 +207,9 @@ def main():
     if weight_init == 'ortho':
         weight_init_fn = las.init.Orthogonal()
 
-    train_subject_ids = read_data_split_file(config.get('training', 'train_subjects_file'))
-    val_subject_ids = read_data_split_file(config.get('training', 'val_subjects_file'))
-    test_subject_ids = read_data_split_file(config.get('training', 'test_subjects_file'))
-
     s1_data_matrix = s1_data['dataMatrix'].astype('float32')
     s2_data_matrix = s2_data['dataMatrix'].astype('float32')
     s3_data_matrix = s3_data['dataMatrix'].astype('float32')
-
-    #visualize_images(s1_data_matrix[800:864])
-    #visualize_images(s2_data_matrix[800:864])
 
     targets_vec = s1_data['targetsVec'].reshape((-1,))
     subjects_vec = s1_data['subjectsVec'].reshape((-1,))
@@ -250,7 +247,7 @@ def main():
 
     s1_train_X, s1_val_X = postsplit_datapreprocessing(s1_train_X, s1_val_X, config, 'stream1')
     s2_train_X, s2_val_X = postsplit_datapreprocessing(s2_train_X, s2_val_X, config, 'stream2')
-    s3_train_X, s3_val_X = postsplit_datapreprocessing(s3_train_X, s3_val_X, config, 'stream2')
+    s3_train_X, s3_val_X = postsplit_datapreprocessing(s3_train_X, s3_val_X, config, 'stream3')
 
     s1_has_encoder = config.getboolean('stream1', 'has_encoder')
     s2_has_encoder = config.getboolean('stream2', 'has_encoder')
@@ -279,7 +276,18 @@ def main():
 
     print('constructing end to end model...')
     if s2_has_encoder:
-        network, l_fuse = adenet_3stream.create_model(ae1, ae2, ae3, (None, None, s1_inputdim), inputs1,
+        if s1_lstm and s2_lstm and s3_lstm:
+            network, l_fuse = adenet_3stream.create_pretrained_model(ae1, s1_lstm,
+                                                                     ae2, s2_lstm,
+                                                                     ae3, s3_lstm,
+                                                                     (None, None, s1_inputdim), inputs1,
+                                                                     (None, None, s2_inputdim), inputs2,
+                                                                     (None, None, s3_inputdim), inputs3,
+                                                                     (None, None), mask,
+                                                                     lstm_size, window, output_classes, fusiontype,
+                                                                     weight_init_fn, use_peepholes, use_blstm_substream)
+        else:
+            network, l_fuse = adenet_3stream.create_model(ae1, ae2, ae3, (None, None, s1_inputdim), inputs1,
                                                       (None, None, s2_inputdim), inputs2,
                                                       (None, None, s3_inputdim), inputs3,
                                                       (None, None), mask,
@@ -295,14 +303,18 @@ def main():
     cost = temporal_softmax_loss(predictions, targets, mask)
     updates = adam(cost, all_params, learning_rate=learning_rate)
 
-    train = theano.function([inputs1, inputs2, targets, mask, window], cost, updates=updates, allow_input_downcast=True)
-    compute_train_cost = theano.function([inputs1, inputs2, targets, mask, window], cost, allow_input_downcast=True)
+    train = theano.function([inputs1, inputs2, inputs3, targets, mask, window],
+                            cost, updates=updates, allow_input_downcast=True)
+    compute_train_cost = theano.function([inputs1, inputs2, inputs3, targets, mask, window],
+                                         cost, allow_input_downcast=True)
 
     test_predictions = las.layers.get_output(network, deterministic=True)
     test_cost = temporal_softmax_loss(test_predictions, targets, mask)
-    compute_test_cost = theano.function([inputs1, inputs2, targets, mask, window], test_cost, allow_input_downcast=True)
+    compute_test_cost = theano.function([inputs1, inputs2, inputs3, targets, mask, window],
+                                        test_cost, allow_input_downcast=True)
 
-    val_fn = theano.function([inputs1, inputs2, targets, mask, window], test_predictions, allow_input_downcast=True)
+    val_fn = theano.function([inputs1, inputs2, inputs3, mask, window],
+                             test_predictions, allow_input_downcast=True)
 
     # We'll train the network with 10 epochs of 30 minibatches each
     print('begin training...')
@@ -338,14 +350,14 @@ def main():
             y = y.reshape((-1, 1))
             y = y.repeat(m.shape[-1], axis=-1)
             X_s2 = gen_seq_batch_from_idx(s2_train_X, batch_idxs,
-                                            s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
+                                          s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
             X_s3 = gen_seq_batch_from_idx(s3_train_X, batch_idxs,
                                           s1_train_vidlens, integral_lens, np.max(s1_train_vidlens))
             print_str = 'Epoch {} batch {}/{}: {} examples using adam with learning rate = {}'.format(
                 epoch + 1, i + 1, epochsize, len(X_s1), learning_rate)
             print(print_str, end='')
             sys.stdout.flush()
-            train(X_s1, y, m, X_s2, windowsize)
+            train(X_s1, X_s2, X_s3, y, m, windowsize)
             print('\r', end='')
         cost = compute_train_cost(X_s1, X_s2, X_s3, y, m, windowsize)
         val_cost = compute_test_cost(X_s1_val, X_s2_val, X_s3_val, y_val, mask_val, windowsize)

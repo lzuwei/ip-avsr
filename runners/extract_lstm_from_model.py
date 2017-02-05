@@ -11,13 +11,13 @@ from custom.nonlinearities import select_nonlinearity
 
 def parse_options():
     options = dict()
-    options['config'] = '../cuave/config/1stream.ini'
     options['shape'] = '2000,1000,500,50'
     options['nonlinearities'] = 'rectify,rectify,rectify,linear'
     options['input_dim'] = 1200
     options['lstm_size'] = 250
     options['output_classes'] = 26
-    options['layer_names'] = 'f_blstm1,b_blstm1'
+    options['layer_names'] = 'f_lstm,b_lstm'
+    options['use_blstm'] = False
     parser = argparse.ArgumentParser()
     parser.add_argument('--shape', help='shape of encoder. Default: 2000,1000,500,50')
     parser.add_argument('--input_dim', help='input dimension. Default: 1200')
@@ -27,6 +27,7 @@ def parse_options():
     parser.add_argument('--lstm_size', help='lstm layer size. Default: 250')
     parser.add_argument('--output_classes', help='number of output classes. Default: 10')
     parser.add_argument('--layer_names', help='names of lstm layers to extract')
+    parser.add_argument('--use_blstm', help='use blstm')
     parser.add_argument('input', help='input model.pkl file')
 
     args = parser.parse_args()
@@ -45,6 +46,8 @@ def parse_options():
         options['output'] = args.output
     if args.layer_names:
         options['layer_names'] = args.layer_names
+    if args.use_blstm:
+        options['use_blstm'] = True
     return options
 
 
@@ -60,16 +63,17 @@ def main():
     network = deltanet_majority_vote.load_saved_model(options['input'],
                                                       (shape, nonlinearities),
                                                       (None, None, options['input_dim']), inputs1, (None, None), mask,
-                                                      options['lstm_size'], window, options['output_classes'])
-    d = deltanet_majority_vote.extract_lstm_weights(network, layer_names, ['flstm', 'blstm'])
-    expected_keys = ['flstm_w_hid_to_cell', 'flstm_w_hid_to_forgetgate', 'flstm_w_hid_to_ingate',
-                     'flstm_w_hid_to_outgate', 'flstm_w_in_to_cell', 'flstm_w_in_to_forgetgate',
-                     'flstm_w_in_to_ingate', 'flstm_w_in_to_outgate', 'flstm_b_cell', 'flstm_b_forgetgate',
-                     'flstm_b_ingate', 'flstm_b_outgate',
-                     'blstm_w_hid_to_cell', 'blstm_w_hid_to_forgetgate',
-                     'blstm_w_hid_to_ingate', 'blstm_w_hid_to_outgate', 'blstm_w_in_to_cell', 'blstm_w_in_to_forgetgate',
-                     'blstm_w_in_to_ingate', 'blstm_w_in_to_outgate', 'blstm_b_cell', 'blstm_b_forgetgate',
-                     'blstm_b_ingate', 'blstm_b_outgate']
+                                                      options['lstm_size'], window, options['output_classes'],
+                                                      use_blstm=options['use_blstm'])
+    d = deltanet_majority_vote.extract_lstm_weights(network, layer_names, ['f_lstm', 'b_lstm'])
+    expected_keys = ['f_lstm_w_hid_to_cell', 'f_lstm_w_hid_to_forgetgate', 'f_lstm_w_hid_to_ingate',
+                     'f_lstm_w_hid_to_outgate', 'f_lstm_w_in_to_cell', 'f_lstm_w_in_to_forgetgate',
+                     'f_lstm_w_in_to_ingate', 'f_lstm_w_in_to_outgate', 'f_lstm_b_cell', 'f_lstm_b_forgetgate',
+                     'f_lstm_b_ingate', 'f_lstm_b_outgate',
+                     'b_lstm_w_hid_to_cell', 'b_lstm_w_hid_to_forgetgate',
+                     'b_lstm_w_hid_to_ingate', 'b_lstm_w_hid_to_outgate', 'b_lstm_w_in_to_cell', 'b_lstm_w_in_to_forgetgate',
+                     'b_lstm_w_in_to_ingate', 'b_lstm_w_in_to_outgate', 'b_lstm_b_cell', 'b_lstm_b_forgetgate',
+                     'b_lstm_b_ingate', 'b_lstm_b_outgate']
     keys = d.keys()
     for k in keys:
         assert k in expected_keys
