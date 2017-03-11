@@ -19,7 +19,7 @@ if type == 1 % AE
    %if type = 1, i.e., AE then the last layer should be linear and usually a
 % series of decreasing layers are used
     hiddenActivationFunctions = {'ReLu','ReLu','ReLu','linear'};%{'sigm','sigm','sigm','linear'}; 
-    hiddenLayers = [2000 1000 500 50]; 
+    hiddenLayers = [200 100 50 20]; 
    
 elseif type == 2 % classifier
     outputSize = size(train_y,2); % in case of classification it should be equal to the number of classes
@@ -32,7 +32,7 @@ end
 % parameters used for visualisation of first layer weights
 visParams.noExamplesPerSubplot = 50; % number of images to show per row
 visParams.noSubplots = floor(hiddenLayers(1) / visParams.noExamplesPerSubplot);
-visParams.col = 40; %44;% number columns of image
+visParams.col = 45; %44;% number columns of image
 visParams.row = 30; %26 number rows of image
 
 
