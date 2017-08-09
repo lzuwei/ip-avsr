@@ -1,4 +1,67 @@
 import numpy as np
+from utils.io import load_mat_file
+
+
+def gen_batch_from_file(X, y, seqlen, feature_len, batchsize=30, shuffle=True, datafieldname='dataMatrix'):
+    """
+    randomized data generator for training data from list of file paths
+    :param X: input as a list of file names (in .mat format)
+    :param y: target as a list of classifications against the each input
+    :param seqlen: lengths of video
+    :param batchsize: size of batch (number of videos sequences)
+    :param shuffle: shuffle the input
+    :param datafieldname: name of field in dictionary that contains input data
+    :return: train, target, seqlen
+    """
+    len_X = len(seqlen)
+    max_timesteps = np.max(seqlen)
+    if shuffle is True:
+        # shuffle the input indexes
+        shuffle_idxs = np.random.permutation(len_X)
+    else:
+        shuffle_idxs = range(len_X)
+
+    start_idx = 0
+    reset = False
+    while True:
+        # check if
+        if len_X - start_idx > batchsize:
+            end_idx = start_idx + batchsize
+            batch_idxs = shuffle_idxs[start_idx:end_idx]
+        else:
+            # end of data, restart from beginning
+            batch_idxs = shuffle_idxs[start_idx:]
+            reset = True
+            # end_idx = batchsize - (len_X - start_idx)
+            # batch_idxs = batch_idxs.append(shuffle_idxs[start_idx:end_idx])
+        bsize = len(batch_idxs)
+        X_batch = np.zeros((bsize, max_timesteps, feature_len), dtype='float32')  # returned batch input
+        y_batch = np.zeros((bsize,), dtype='uint8')
+        mask = np.zeros((bsize, max_timesteps), dtype='uint8')
+
+        for i, video_idx in enumerate(batch_idxs):
+            file_path = X[video_idx]
+            try:
+                data = load_mat_file(file_path)[datafieldname].astype('float32')
+            except ValueError as err:
+                print('Error reading file: {}, {}'.format(file_path, err.message))
+                data = np.zeros((max_timesteps, feature_len), dtype='float32')
+            vidlen = seqlen[video_idx]
+            X_batch[i] = np.concatenate([data, np.zeros((max_timesteps - vidlen, feature_len))])
+            y_batch[i] = y[video_idx]
+            mask[i, :vidlen] = 1  # set 1 for length of video
+            mask[i, vidlen:] = 0  # set 0 for rest of video
+        if reset:
+            start_idx = 0
+            reset = False
+            if shuffle is True:
+                # shuffle the input indexes
+                shuffle_idxs = np.random.permutation(len_X)
+            else:
+                shuffle_idxs = range(len_X)
+        else:
+            start_idx = end_idx
+        yield X_batch, y_batch, mask, batch_idxs
 
 
 def gen_lstm_seq_random(X, y, seqlen):
@@ -34,6 +97,7 @@ def gen_lstm_batch_random(X, y, seqlen, batchsize=30, shuffle=True):
     :param y: target
     :param seqlen: lengths of video
     :param batchsize: number of videos per batch
+    :param shuffle: shuffle the input
     :return: x_train, y_target, input_mask, video idx used
     """
     # find the max len of all videos for creating the mask
