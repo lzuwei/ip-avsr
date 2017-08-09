@@ -1,7 +1,7 @@
 import os
 import unittest
 import numpy as np
-from utils.io import save_mat, load_mat_file
+from utils.io import load_mat_file
 from utils.datagen import gen_batch_from_file
 
 
@@ -27,11 +27,15 @@ class TestGenBatchFromFile(unittest.TestCase):
         val_targets = targets[val_idxs] - 1
         test_targets = targets[test_idxs] - 1
 
+        # change the file path format and add path prefix to locate file
         def prepare_filepaths(f):
             return os.path.join('../5words/data', str(f[0].replace('\\', '/')))
 
+        # apply to all entries in file lists
         vfunc = np.vectorize(prepare_filepaths)
         filenames = vfunc(filenames)
+
+        # generate splits
         training_files = filenames[train_idxs]
         val_files = filenames[val_idxs]
         test_files = filenames[test_idxs]
