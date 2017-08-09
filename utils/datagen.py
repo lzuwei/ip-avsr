@@ -229,6 +229,30 @@ def gen_seq_batch_from_idx(data, idxs, seqlens, integral_lens, max_timesteps):
     return X_batch
 
 
+def gen_file_batch_from_idx(files, idxs, seqlens, max_timesteps, feature_len, datafieldname='dataMatrix'):
+    """
+    generate batch from file list given the indexes of another batch
+    :param files: file list containing file paths
+    :param idxs: indexes to generate batch from file list
+    :param seqlens: length of sequences
+    :param max_timesteps: maximum len of all sequences
+    :param feature_len: length of feature
+    :param datafieldname: name of field containing data
+    :return: batch of size equal to length of indexes
+    """
+    X_batch = np.zeros((len(idxs), max_timesteps, feature_len), dtype='float32')
+    for i, seq_id in enumerate(idxs):
+        file_path = files[seq_id]
+        try:
+            data = load_mat_file(file_path)[datafieldname].astype('float32')
+        except ValueError as err:
+            print('Error reading file: {}, {}'.format(file_path, err.message))
+            data = np.zeros((max_timesteps, feature_len), dtype='float32')
+        vidlen = seqlens[seq_id]
+        X_batch[i] = np.concatenate([data, np.zeros((max_timesteps - vidlen, feature_len))])
+    return X_batch
+
+
 def sequence_batch_iterator(X, y, seqlen, batchsize=30):
     """
     generate the next batch of training data
